@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Yerel GRK</title>
+<style>
+:root{--bg:#0b0b0f;--sidebar:#121215;--panel:#16161c;--text:#f4f4f5;--muted:#9a9aa8;--border:#2a2a32;--accent:#2b6e9e;--user:#1e4a6b;--ai:#1c1c24;--input:#141418;--ok:#065f46;--okt:#a7f3d0;--warn:#b45309;--warnt:#fde68a;--cloud:#1d4ed8;--cloudt:#bfdbfe;--fs:1.08rem}
+body.light-theme{--bg:#f2f2f5;--sidebar:#fff;--panel:#f0f0f3;--text:#1a1a1e;--muted:#5a5a62;--border:#dcdce0;--user:#2b6e9e;--ai:#e8e8ec;--input:#f7f7f9}
+body.dim-theme{--bg:#1a1f26;--sidebar:#14181f;--panel:#222831;--text:#f8fafc;--muted:#cbd5e1;--border:#30363d;--user:#1e4a6b;--ai:#222831;--input:#14181f}
+*{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',system-ui,sans-serif;font-size:var(--fs)}
+body{background:var(--bg);color:var(--text);height:100vh;display:flex;overflow:hidden}
+.sidebar{width:400px;min-width:280px;max-width:650px;background:var(--sidebar);border-right:1px solid var(--border);display:flex;flex-direction:column;height:100vh;z-index:100;transition:width .25s ease,min-width .25s ease,transform .25s ease;resize:horizontal;overflow:auto}
+.sidebar.collapsed{width:0!important;min-width:0!important;max-width:0!important;border-right:none;overflow:hidden;padding:0}
+.sidebar-header{padding:12px 14px;display:flex;align-items:center;gap:10px}
+.logo{width:36px;height:36px;border-radius:6px;background:linear-gradient(135deg,#2b6e9e,#3b82f6);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;color:#fff}
+#newChatBtn{margin:4px 14px 10px;padding:10px;background:var(--accent);border:none;border-radius:6px;color:#fff;font-weight:700;cursor:pointer;font-size:1rem}
+.model-label{margin:0 14px 4px;font-size:.82rem;color:var(--text);text-transform:uppercase;letter-spacing:.04em;font-weight:800}
+#modelSelect{margin:0 14px 8px;width:calc(100% - 28px);font-size:1rem;font-weight:700;padding:10px 12px;border-radius:6px;background:var(--panel);border:1px solid var(--border);color:var(--text);cursor:pointer}
+#modelSelect:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px #2b6e9e44}
+#roleSelect{margin:0 14px 8px;width:calc(100% - 28px);font-size:.95rem;font-weight:600;padding:8px 10px;border-radius:6px;background:var(--panel);border:1px solid var(--border);color:var(--text)}
+#downloadChatBtn{margin:0 14px 10px;padding:8px;background:#2e7d5e;border:none;border-radius:6px;color:#fff;font-weight:700;cursor:pointer}
+.history-list{flex:1;overflow-y:auto;padding:4px 10px 12px}
+.hist-item{padding:10px 12px;margin:5px 0;background:var(--panel);border:1px solid transparent;border-radius:6px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:.95rem}
+.hist-item.active{background:#1a3a52;border-color:var(--accent)}
+.hist-item .hourglass{display:inline-block;animation:spin 1.2s linear infinite;margin-right:4px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.hist-item .title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;font-size:.92rem}
+.hist-item .del{background:rgba(239,68,68,0.2);border:1px solid #ef4444;color:#ff9999;cursor:pointer;font-size:.8rem;padding:2px 6px;border-radius:4px;flex-shrink:0}
+.tag{font-size:.7rem;padding:3px 7px;border-radius:4px;font-weight:700;flex-shrink:0;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tag-yerel{background:#c2410c;color:#ffedd5}.tag-bulut{background:#1d4ed8;color:#bfdbfe}.tag-skill{background:var(--warn);color:var(--warnt)}.tag-vision{background:#7c3aed;color:#ede9fe}
+#main{flex:1;display:flex;flex-direction:column;height:100vh;min-width:0}
+#topbar{min-height:58px;padding:8px 14px;background:var(--sidebar);border-bottom:1px solid var(--border);display:grid;grid-template-columns:minmax(200px,1fr) auto minmax(280px,1fr);align-items:center;gap:10px;position:relative}
+.topbar-left{display:flex;align-items:center;gap:8px;min-width:0}
+.topbar-center{display:flex;align-items:center;justify-content:center;gap:6px;min-width:0}
+.topbar-right{display:flex;align-items:center;justify-content:flex-end;gap:6px;min-width:0;flex-wrap:nowrap}
+#sidebarToggle{background:var(--panel);border:1px solid var(--border);color:var(--text);width:32px;height:32px;border-radius:6px;cursor:pointer;font-size:1rem;flex:0 0 32px}
+#chatTitle{font-size:0.98rem;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#currentModelBadge{font-size:.74rem;padding:4px 8px;border-radius:6px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:300px}
+#statusBar{display:flex;gap:5px;align-items:center;flex-wrap:nowrap}
+#gpu-indicator{font-size:.78rem;padding:5px 8px;border-radius:6px;background:var(--panel);border:1px solid var(--border);color:var(--text);font-weight:750;white-space:nowrap;max-width:min(38vw,480px);overflow:hidden;text-overflow:ellipsis}
+.pill{font-size:.78rem;padding:5px 8px;border-radius:6px;font-weight:800;white-space:nowrap}
+.pill.ok{background:#0e3b30;color:var(--okt);border:1px solid #166534}.pill.down{background:#451a1a;color:#ffb4a2;border:1px solid #991b1b}
+#themeToggle,#shutdownBtn{border:none;border-radius:6px;padding:6px 9px;cursor:pointer;font-weight:700;font-size:.78rem;white-space:nowrap}
+#themeToggle{background:#5a4a2e;color:#fff}#shutdownBtn{background:#c0392b;color:#fff}
+#chatBox{flex:1;overflow-y:auto;padding:20px 24px;display:flex;flex-direction:column;gap:12px}
+.msg-wrapper{max-width:80%;display:flex;flex-direction:column}
+.msg-wrapper.user{align-self:flex-end;align-items:flex-end}.msg-wrapper.assistant{align-self:flex-start}.msg-wrapper.system{align-self:center;max-width:92%}
+.badge{font-size:.78rem;padding:4px 10px;border-radius:6px;margin-bottom:6px;font-weight:700;width:fit-content}
+.badge-yerel{background:#c2410c!important;color:#ffedd5!important}.badge-bulut{background:#1d4ed8!important;color:#bfdbfe!important}
+.badge-skill{background:var(--warn);color:var(--warnt)}.badge-vision{background:#7c3aed!important;color:#ede9fe!important}
+.pulse{animation:badgePulse 1.2s infinite;border:1px solid #ffffff44}
+@keyframes badgePulse{0%{opacity:1;transform:scale(1)}50%{opacity:0.5;transform:scale(0.97)}100%{opacity:1;transform:scale(1)}}
+.msg{padding:12px 15px;border-radius:8px;white-space:pre-wrap;word-wrap:break-word;line-height:1.45;font-size:1.02rem;border:1px solid transparent}
+.user .msg{background:var(--user); font-style: italic; font-weight: 600; font-size: 1.15rem;}.assistant .msg{background:var(--ai);border-color:var(--border)}
+.system .msg{background:var(--panel);border:1px solid var(--border);color:var(--muted);text-align:center;padding:14px;font-size:.95rem}
+.msg-actions{display:flex;gap:5px;margin-top:5px;justify-content:flex-end;flex-wrap:wrap}
+.msg-action-btn{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:var(--text);border-radius:4px;padding:2px 7px;font-size:.75rem;cursor:pointer}
+.msg-action-btn.excel-btn{background:#065f46;border-color:#059669;color:#a7f3d0;font-weight:700}
+.msg-timestamp{font-size:.68rem;color:var(--muted);margin-top:3px}
+#inputArea{padding:10px 14px 12px;background:var(--sidebar);border-top:1px solid var(--border);display:flex;flex-direction:column;gap:8px}
+.tools-row{display:flex;gap:5px;flex-wrap:wrap;align-items:center}
+.tool-btn{background:var(--panel);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:6px;font-size:.85rem;font-weight:650;cursor:pointer}
+.tool-btn.stop{background:#ef4444;color:#fff;border:none}
+#selectImageBtn{background:#d97706;border-color:#b45309;color:#fff}#excelBtn{background:#059669;border-color:#047857;color:#fff}
+#pdfBtn{background:#dc2626;border-color:#b91c1c;color:#fff}#txtBtn{background:#2563eb;border-color:#1d4ed8;color:#fff}
+#codeBtn{background:#7c3aed;border-color:#6d28d9;color:#fff}#micBtn{background:#0284c7;border-color:#0369a1;color:#fff}
+#folderBtn{background:#0d9488;border-color:#0f766e;color:#fff}
+.input-row{display:flex;gap:8px;align-items:stretch}
+#prompt{flex:1;min-height:140px;max-height:260px;padding:12px 14px;border-radius:8px;background:var(--input);border:1px solid var(--border);color:var(--text);font-size:1.15rem;font-style:italic;font-weight:600;resize:vertical;line-height:1.4}
+#prompt:focus{outline:none;border-color:var(--accent)}
+#sendBtn{min-width:80px;padding:0 14px;background:var(--accent);border:none;border-radius:6px;color:#fff;font-weight:700;cursor:pointer;font-size:1rem}
+#imagePreview{display:none;gap:6px;flex-wrap:wrap}.preview-item{position:relative}.preview-item img{height:48px;border-radius:4px}
+.remove-img{position:absolute;top:-5px;right:-5px;background:#8b5a2b;border-radius:50%;width:16px;height:16px;font-size:10px;line-height:16px;text-align:center;cursor:pointer;color:#fff}
+#packagePreview{display:none;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--border);padding:6px 12px;border-radius:6px;font-size:0.9rem;width:fit-content}
+#packagePreview .remove-pkg{background:#ef4444;color:#fff;border:none;border-radius:4px;padding:2px 6px;cursor:pointer;font-size:0.75rem;font-weight:700}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+<div class="sidebar" id="sidebar">
+  <div class="sidebar-header"><div class="logo">GK</div><div><strong style="font-size:1.1rem">GK AI STUDYO</strong><br><small style="color:var(--muted);font-size:.8rem;font-weight:700">SÜRÜM GK+GPT v2.9</small></div></div>
+  <button id="newChatBtn">+ Yeni Sohbet</button>
+  <div class="model-label">MODEL LİSTESİ</div>
+  <select id="modelSelect" size="1"></select>
+  <div class="model-label">ROL (UZMANLIK)</div>
+  <select id="roleSelect">
+    <option value="default">Genel Asistan</option>
+    <option value="coder">Yazılım Mimarı (Coder)</option>
+    <option value="writer">Teknik Yazar (Writer)</option>
+    <option value="analyst">Veri Analisti (Analyst)</option>
+    <option value="engineer">Otomotiv Mühendisi (Engineer)</option>
+  </select>
+  <button id="downloadChatBtn">Sohbeti Indir (.txt)</button>
+
+  <div class="model-label" style="display:flex;justify-content:space-between;align-items:center;">
+    <span>📁 PROJELER (Kalıcı Workspace)</span>
+    <button id="newProjectBtn" title="Yeni proje ekle" style="background:none;border:none;color:var(--accent);font-size:1.1rem;cursor:pointer;padding:0 4px;">＋</button>
+  </div>
+  <div id="projectList" style="max-height:140px;overflow-y:auto;padding:0 14px;"></div>
+  <div id="activeProjectBanner" style="display:none;margin:4px 14px;padding:8px 10px;background:var(--panel);border:1px solid var(--accent);border-radius:6px;font-size:.85rem;">
+    <div id="activeProjectLabel" style="font-weight:700;"></div>
+    <button id="exitProjectBtn" style="margin-top:6px;width:100%;background:var(--warn);color:var(--warnt);border:none;border-radius:4px;padding:4px;cursor:pointer;font-size:.8rem;">Projeden Çık</button>
+  </div>
+
+  <div id="newProjectForm" style="display:none;margin:4px 14px;padding:8px 10px;background:var(--panel);border:1px solid var(--border);border-radius:6px;">
+    <input id="newProjName" placeholder="Proje adı" style="width:100%;margin-bottom:6px;padding:6px;border-radius:4px;border:1px solid var(--border);background:var(--input);color:var(--text);">
+    <input id="newProjPath" placeholder="Dizin yolu (C:\...)" style="width:100%;margin-bottom:6px;padding:6px;border-radius:4px;border:1px solid var(--border);background:var(--input);color:var(--text);">
+    <button id="confirmNewProjectBtn" style="width:100%;background:var(--ok);color:var(--okt);border:none;border-radius:4px;padding:6px;cursor:pointer;font-weight:700;">✅ Onayla ve Kaydet</button>
+  </div>
+
+  <div id="history-list" class="history-list"></div>
+</div>
+<div id="main">
+  <div id="topbar">
+    <div class="topbar-left">
+      <button id="sidebarToggle" title="Kenar çubuğunu aç/kapat">☰</button>
+      <span id="chatTitle">Sohbet</span>
+    </div>
+    <div class="topbar-center">
+      <span id="currentModelBadge">Auto · Orkestratör</span>
+    </div>
+    <div class="topbar-right">
+      <div id="statusBar"></div>
+      <span id="gpu-indicator" title="Windows GPU sayaçları">GPU okunuyor...</span>
+      <button id="themeToggle">Tema</button>
+      <button id="shutdownBtn">Çıkış</button>
+    </div>
+  </div>
+  <div id="chatBox"></div>
+  <div id="inputArea">
+    <div class="tools-row">
+      <button class="tool-btn" id="selectImageBtn">Görsel</button>
+      <button class="tool-btn" id="excelBtn">Excel</button>
+      <label title="İşaretliyse görsel analizi saniyeler içinde buluttaki Gemini ile yapılır (Timeout önler)" style="display:flex;align-items:center;gap:4px;font-size:0.82rem;font-weight:650;cursor:pointer;background:var(--panel);padding:4px 8px;border-radius:6px;border:1px solid var(--border);color:var(--text)">
+        <input type="checkbox" id="cloudVisionCheck" checked style="cursor:pointer"> Bulut Vizyon
+      </label>
+      <button class="tool-btn" id="pdfBtn">PDF</button>
+      <button class="tool-btn" id="folderBtn">📂 Klasör Oku</button>
+      <button class="tool-btn" id="txtBtn">TXT</button>
+      <button class="tool-btn" id="codeBtn">Kod Gönder</button>
+      <button class="tool-btn" id="micBtn">🎤 Ses</button>
+      <button class="tool-btn stop" id="stopBtn" style="display:none">Durdur</button>
+      <input type="file" id="imageInput" accept="image/*" multiple style="display:none">
+      <input type="file" id="pdfInput" accept=".pdf" style="display:none">
+      <input type="file" id="folderInput" webkitdirectory multiple style="display:none">
+      <input type="file" id="txtInput" accept=".txt" style="display:none">
+      <input type="file" id="codeInput" accept=".py,.js,.ts,.jsx,.tsx,.java,.c,.cpp,.h,.cs,.go,.rs,.php,.rb,.sql,.json,.html,.css,.sh,.ps1,.md" style="display:none">
+    </div>
+    <div id="imagePreview"></div>
+    <div id="packagePreview"></div>
+    <div class="input-row">
+      <textarea id="prompt" placeholder="Mesaj yaz... (Auto orkestrasyon devrede)"></textarea>
+      <button id="sendBtn">Gönder</button>
+    </div>
+  </div>
+</div>
+<script type="module" src="/static/js/main.js"></script>
+</body>
+</html>

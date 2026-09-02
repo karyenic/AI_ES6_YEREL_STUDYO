@@ -1,0 +1,11 @@
+.env
+venv/
+__pycache__/
+conversations/
+chat_history/
+exports/
+excel/
+uploads/
+.vs/
+*.log
+.DS_Store
