@@ -1,0 +1,17 @@
+﻿AI_ES6_YEREL_STUDYO - GIT DURUMU
+Olusturulma: 2026-09-03 23:01:32
+Repo: C:\AI_YEREL\AI_ES6_YEREL_STUDYO
+Git mevcut: True
+Branch: main
+Son commit: 2d30f3fcd8668015e914cbb84b33959999637bf7|2026-09-03 02:04:25 +0300|GK AI Studyo taze baslangic ve guncel durum
+
+git status --short:
+ D app.py.bak
+ D "apply_bs4_approval (2).py"
+ D apply_bs4_approval.py
+ D fix_web_engine.py
+ D inject_gemini_search.py
+?? ES6_DURAK_01.ps1
+?? backup_20260903_025411/
+?? backup_20260903_030012/
+?? backup_20260903_030204/

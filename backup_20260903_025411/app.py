@@ -393,73 +393,21 @@ def chat():
         route_label = (route_label + "+RO") if route_label else "RO"
 
     web_context = ""
-    if use_web_search:
-        # ONEMLI: dogrudan site taramasi (BeautifulSoup) Gemini'ye ihtiyac
-        # DUYMAZ - bu kod bir kez daha yanlislikla SADECE Gemini'ye bagli
-        # hale getirilmisti (GEMINI_API_KEY yoksa/gecersizse veya Gemini
-        # kota/baglanti sorunu yasarsa web arama TAMAMEN calismiyordu).
-        # Once dogrudan tarama denenir; Gemini sadece o sonuc vermezse
-        # YEDEK olarak kullanilir.
-        scrape_note = None
+    if use_web_search and GEMINI_API_KEY:
         try:
-            from bs4 import BeautifulSoup
-            from urllib.parse import urljoin
-            url_match = re.search(r'https?://[^\s]+|www\.[^\s]+|[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', prompt)
-            if url_match:
-                target_url = url_match.group(0)
-                if not target_url.startswith('http'):
-                    target_url = 'https://' + target_url
-                headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-                try:
-                    r_scrape = requests.get(target_url, timeout=12, headers=headers)
-                except requests.exceptions.RequestException as e:
-                    scrape_note = f"[UYARI: {target_url} adresine erişilemedi - {e}]"
-                    r_scrape = None
-                if r_scrape is not None:
-                    if r_scrape.status_code == 200:
-                        soup = BeautifulSoup(r_scrape.text, 'html.parser')
-                        priority_links, other_links = [], []
-                        for a in soup.find_all('a', href=True):
-                            href = a['href']
-                            full_url = urljoin(target_url, href)
-                            text_l = a.get_text(strip=True) or href
-                            entry = f"- [{text_l}]({full_url})"
-                            if any(ext in href.lower() for ext in ['.pdf', '.zip', '.rar', '.xlsx', '.xls', 'indir', 'download', 'katalog', 'file']) or any(ext in text_l.lower() for ext in ['indir', 'download', 'katalog', 'dosya', 'pdf']):
-                                priority_links.append(entry)
-                            else:
-                                other_links.append(entry)
-                        if priority_links:
-                            web_context = f"[DOĞRUDAN WEB KAZIMA SONUÇLARI - İNDİRME/DOSYA BAĞLANTILARI ({target_url})]:\n" + "\n".join(priority_links[:30])
-                        elif other_links:
-                            web_context = f"[DOĞRUDAN WEB KAZIMA SONUÇLARI - belirgin bir 'indirme' linki bulunamadı, sayfadaki tüm bağlantılar ({target_url})]:\n" + "\n".join(other_links[:40])
-                        else:
-                            scrape_note = f"[UYARI: {target_url} tarandı ama sayfada hiç bağlantı bulunamadı - sayfa JavaScript ile mi yükleniyor olabilir?]"
-                    else:
-                        scrape_note = f"[UYARI: {target_url} adresi {r_scrape.status_code} durum koduyla yanıt verdi.]"
-
-            if not web_context and GEMINI_API_KEY:
-                search_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + GEMINI_API_KEY
-                search_payload = {
-                    "contents": [{"parts": [{"text": "Web üzerinde kapsamlı arama yap, resmi kaynakları, site yapısını ve indirme linklerini derle: " + prompt}]}],
-                    "tools": [{"googleSearch": {}}]
-                }
-                s_res = requests.post(search_url, json=search_payload, timeout=30)
-                if s_res.status_code == 200:
-                    s_parts = s_res.json().get("candidates", [{}])[0].get("content", {}).get("parts", [])
-                    web_context = "".join([p.get("text", "") for p in s_parts])
-                elif not scrape_note:
-                    scrape_note = f"[UYARI: Gemini web araması da başarısız oldu ({s_res.status_code}): {s_res.text[:300]}]"
-            elif not web_context and not GEMINI_API_KEY and not scrape_note:
-                scrape_note = "[UYARI: Doğrudan tarama sonuç vermedi ve Gemini API anahtarı tanımlı olmadığı için yedek arama da yapılamadı.]"
-
-            if not web_context and scrape_note:
-                web_context = scrape_note + " Bu durumu kullanıcıya açıkça belirt, veri yokken tahmini/uydurma bilgi verme."
-        except ImportError:
-            web_context = "[UYARI: BeautifulSoup kütüphanesi kurulu değil, web taraması yapılamadı. `pip install beautifulsoup4` gerekiyor. Bunu kullanıcıya belirt.]"
+            search_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + GEMINI_API_KEY
+            search_payload = {
+                "contents": [{"parts": [{"text": "Hedef Sorgu: " + prompt + "\n\nGörev: Bu sorgu için web üzerinde nokta atışı arama yap. Gürültülü içerikleri ve gereksiz metinleri ele. Doğrudan resmi kaynakları, site yapılarını, dosya ve katalog indirme linklerini net bir Markdown listesi olarak derle."}]}],
+                "tools": [{"googleSearch": {}}]
+            }
+            s_res = requests.post(search_url, json=search_payload, timeout=30)
+            if s_res.status_code == 200:
+                s_parts = s_res.json().get("candidates", [{}])[0].get("content", {}).get("parts", [])
+                web_context = "".join([p.get("text", "") for p in s_parts])
+            else:
+                web_context = f"[UYARI: Bulut web araması başarısız oldu ({s_res.status_code}): {s_res.text[:200]}]"
         except Exception as e:
-            print("Web arama/kazıma hatası:", e)
-            web_context = f"[UYARI: Web arama sırasında beklenmeyen bir hata oluştu: {e}. Bunu kullanıcıya belirt.]"
-
+            web_context = f"[UYARI: Bulut arama hatası: {e}]" 
     if web_context:
         prompt = f"[WEB VERİLERİ]:\n{web_context}\n\n[İSTEK]:\n{prompt}"
 
@@ -724,6 +672,7 @@ def api_delete_project():
         return jsonify({"status": "error", "message": "Proje bulunamadÄ±."}), 404
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
+
 
 
 

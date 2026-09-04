@@ -33,14 +33,6 @@ try:
     print("  ✓ BeautifulSoup [Yüklü] (web taraması için gerekli)")
 except ImportError:
     print("  ❌ BeautifulSoup [EKSİK - web taraması çalışmayacak, 'pip install beautifulsoup4']")
-
-CHROMADB_AVAILABLE = False
-try:
-    import chromadb
-    CHROMADB_AVAILABLE = True
-    print("  ✓ chromadb [Yüklü] (proje RAG/arama için gerekli)")
-except ImportError:
-    print("  ❌ chromadb [EKSİK - proje RAG özelliği çalışmayacak, 'pip install chromadb']")
 print("--------------------------------------------------\n")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -188,178 +180,6 @@ def _scan_project_folder(proj_path):
             except: pass
     return package_text, count
 
-# =============================================================================
-# RAG (Retrieval-Augmented Generation) - PROJE KLASORU ICIN AKILLI ARAMA
-# =============================================================================
-# ONCEKI YONTEM: proje aktive edilince TUM dizin tek bir dev metin
-# paketine donusturulup modele oldugu gibi veriliyordu. Bu, buyuk
-# projelerde bag lam penceresi tasmasina (ctx tavan asimi -> model
-# yeniden yukleme -> 1-2+ dakika bekleme) ve "her mesajda ayni/benzer
-# cevap" sorununa yol aciyordu. RAG ile bunun yerine:
-#   1) Dosyalar kucuk parcalara (chunk) bolunur
-#   2) Her parca yerel bir embedding modeliyle (Ollama uzerinden,
-#      nomic-embed-text) sayisal vektore cevrilip ChromaDB'ye kaydedilir
-#      (BIR KERE yapilir - "Indeksle" butonuna basildiginda)
-#   3) Her mesajda, SADECE o soruyla alakali birkac parca aranip bulunur
-#      ve modele o kadari verilir - tum dizin degil. Bu hem cok daha
-#      hizli hem de model gercekten alakali veriyi gorur.
-# Kucuk projeler icin eski "tam paket" yontemi hala calisir (proje
-# indekslenmemisse otomatik olarak ona duser - geriye donuk uyumlu).
-# =============================================================================
-CHROMA_DIR = os.path.join(BASE_DIR, "chroma_db")
-EMBED_MODEL = os.environ.get("OLLAMA_EMBED_MODEL", "nomic-embed-text")
-
-def _chroma_client():
-    if not CHROMADB_AVAILABLE:
-        return None
-    os.makedirs(CHROMA_DIR, exist_ok=True)
-    return chromadb.PersistentClient(path=CHROMA_DIR)
-
-def _safe_collection_name(proj_name):
-    # ChromaDB koleksiyon adi kurallari: 3-63 karakter, sadece harf/rakam/
-    # alt cizgi/tire, harf veya rakamla baslayip bitmeli.
-    safe = re.sub(r'[^a-zA-Z0-9_-]', '_', proj_name).strip('_-')
-    safe = "proj_" + safe if safe else "proj_default"
-    return safe[:63]
-
-def _get_embedding(text):
-    """Ollama'nin embedding uc noktasini kullanir - tamamen yerel, buluta
-    hic cikmaz. nomic-embed-text kurulu degilse acik bir hata firlatir
-    (cagiran yer bunu kullaniciya bildirir - 'ollama pull nomic-embed-text'
-    calistirmasi gerekir)."""
-    r = requests.post(
-        "http://127.0.0.1:11434/api/embeddings",
-        json={"model": EMBED_MODEL, "prompt": text},
-        timeout=30
-    )
-    if r.status_code != 200:
-        raise RuntimeError(f"Embedding modeli hatası ({r.status_code}): {r.text[:200]} - '{EMBED_MODEL}' kurulu mu? (ollama pull {EMBED_MODEL})")
-    emb = r.json().get("embedding")
-    if not emb:
-        raise RuntimeError("Embedding boş döndü.")
-    return emb
-
-def _chunk_text(text, chunk_size=900, overlap=150):
-    """Basit kaydirmali pencere ile parcalama. Kod/metin dosyalari icin
-    yeterince iyi calisir - cok gelismis (cumle/paragraf siniri gozeten)
-    bir parcalayici degil ama pratikte iyi sonuc verir."""
-    chunks = []
-    start = 0
-    n = len(text)
-    while start < n:
-        end = min(start + chunk_size, n)
-        chunk = text[start:end].strip()
-        if chunk:
-            chunks.append(chunk)
-        if end >= n:
-            break
-        start = end - overlap
-    return chunks
-
-@app.route('/api/projects/index', methods=['POST'])
-def api_index_project():
-    """Proje dizinini tarar, dosyalari parcalara boler, her parcayi
-    embed edip ChromaDB'ye yazar. Buyuk projelerde biraz surebilir
-    (her parca icin bir embedding cagrisi yapiliyor) - bu yuzden AYRI
-    bir adim, otomatik degil; kullanici ne zaman calisacagini bilsin."""
-    if not CHROMADB_AVAILABLE:
-        return jsonify({"status": "error", "message": "chromadb kurulu değil. Sunucuda 'pip install chromadb' çalıştırın."}), 500
-    try:
-        data = request.get_json(silent=True) or {}
-        proj_name = data.get("name", "").strip()
-        config = load_projects_config()
-        proj = config.get(proj_name)
-        if not proj:
-            return jsonify({"status": "error", "message": "Proje bulunamadı."}), 404
-        proj_path = proj["path"]
-        if not os.path.exists(proj_path):
-            return jsonify({"status": "error", "message": f"Dizin mevcut değil: {proj_path}"}), 400
-
-        client = _chroma_client()
-        coll_name = _safe_collection_name(proj_name)
-        try:
-            client.delete_collection(coll_name)  # yeniden indeksleme - eskiyi temizle
-        except Exception:
-            pass
-        collection = client.create_collection(coll_name)
-
-        ids, embeddings, documents, metadatas = [], [], [], []
-        file_count = 0
-        for root, dirs, files in os.walk(proj_path):
-            dirs[:] = [d for d in dirs if d not in ['.git', 'venv', '__pycache__', 'node_modules', 'chat_history', 'conversations', 'exports', 'excel', 'uploads', 'GK_Studyo_Exports', 'chroma_db']]
-            for file in files:
-                lower_f = file.lower()
-                if lower_f.endswith(('.png', '.jpg', '.jpeg', '.zip', '.exe', '.pyc', '.xlsx', '.pdf', '.ico', '.db')):
-                    continue
-                file_full_path = os.path.join(root, file)
-                rel_path = os.path.relpath(file_full_path, proj_path)
-                try:
-                    with open(file_full_path, 'r', encoding='utf-8', errors='ignore') as f:
-                        content = f.read()
-                except Exception:
-                    continue
-                if not content.strip():
-                    continue
-                file_count += 1
-                for i, chunk in enumerate(_chunk_text(content)):
-                    try:
-                        emb = _get_embedding(chunk)
-                    except Exception as e:
-                        return jsonify({"status": "error", "message": f"Embedding hatası ({rel_path}, parça {i}): {e}"}), 500
-                    ids.append(f"{rel_path}::{i}")
-                    embeddings.append(emb)
-                    documents.append(chunk)
-                    metadatas.append({"file": rel_path, "chunk": i})
-
-        if ids:
-            # ChromaDB tek seferde cok buyuk ekleme sevmeyebilir - 100'luk gruplar halinde ekle
-            batch = 100
-            for i in range(0, len(ids), batch):
-                collection.add(
-                    ids=ids[i:i+batch],
-                    embeddings=embeddings[i:i+batch],
-                    documents=documents[i:i+batch],
-                    metadatas=metadatas[i:i+batch]
-                )
-
-        proj["indexed"] = True
-        proj["indexed_chunk_count"] = len(ids)
-        proj["indexed_file_count"] = file_count
-        proj["indexed_at"] = time.time()
-        config[proj_name] = proj
-        save_projects_config(config)
-
-        return jsonify({"status": "success", "file_count": file_count, "chunk_count": len(ids)})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
-
-def _rag_query(proj_name, query, k=5):
-    """Bir proje icin en alakali k parcayi getirir. Proje indekslenmemisse
-    veya chromadb yoksa None doner - cagiran yer bu durumda eski 'tam
-    paket' yontemine geri donmeli (geriye donuk uyumluluk)."""
-    if not CHROMADB_AVAILABLE:
-        return None
-    try:
-        client = _chroma_client()
-        coll_name = _safe_collection_name(proj_name)
-        try:
-            collection = client.get_collection(coll_name)
-        except Exception:
-            return None  # henuz indekslenmemis
-        query_emb = _get_embedding(query)
-        results = collection.query(query_embeddings=[query_emb], n_results=k)
-        docs = results.get("documents", [[]])[0]
-        metas = results.get("metadatas", [[]])[0]
-        if not docs:
-            return None
-        parts = []
-        for doc, meta in zip(docs, metas):
-            parts.append(f"--- DOSYA: {meta.get('file', '?')} (parça {meta.get('chunk', '?')}) ---\n{doc}")
-        return "[PROJE İÇİNDEN İLGİLİ BULUNAN PARÇALAR (RAG)]:\n" + "\n\n".join(parts)
-    except Exception as e:
-        print(f"[RAG SORGU HATASI] {e}")
-        return None
-
 @app.route('/api/projects/activate', methods=['POST'])
 def api_activate_project():
     try:
@@ -377,25 +197,14 @@ def api_activate_project():
             config[proj_name] = proj
             save_projects_config(config)
 
-        is_indexed = bool(proj.get("indexed")) and CHROMADB_AVAILABLE
-        # RAG ile indekslenmis bir proje icin devasa paketi client'a hic
-        # gondermeye gerek yok - her mesajda backend zaten alakali parcalari
-        # kendisi bulacak (bkz. /api/chat, is_project + project_name).
-        # Indekslenmemisse eski davranisa (tam paket) geri donuluyor.
-        if is_indexed:
-            package_text, count = "", proj.get("indexed_file_count", 0)
-        else:
-            package_text, count = _scan_project_folder(proj["path"])
-
+        package_text, count = _scan_project_folder(proj["path"])
         return jsonify({
             "status": "success",
             "project": {
                 "name": proj_name,
                 "path": proj["path"],
                 "default_model": proj.get("default_model", "auto"),
-                "conversationId": proj["conversationId"],
-                "indexed": is_indexed,
-                "chunk_count": proj.get("indexed_chunk_count", 0)
+                "conversationId": proj["conversationId"]
             },
             "package_content": package_text,
             "file_count": count
@@ -562,7 +371,6 @@ def chat():
     file_package = data.get("filePackage", None)
     use_web_search = data.get("web_search", False) or data.get("force_web", False)
     is_project = bool(data.get("is_project", False))
-    project_name = data.get("project_name", "").strip()
 
     installed = get_installed_ollama_models()
     if not installed: installed = FALLBACK_LOCAL
@@ -585,91 +393,23 @@ def chat():
         route_label = (route_label + "+RO") if route_label else "RO"
 
     web_context = ""
-    if use_web_search:
-        # ONEMLI: dogrudan site taramasi (BeautifulSoup) Gemini'ye ihtiyac
-        # DUYMAZ - bu kod bir kez daha yanlislikla SADECE Gemini'ye bagli
-        # hale getirilmisti (GEMINI_API_KEY yoksa/gecersizse veya Gemini
-        # kota/baglanti sorunu yasarsa web arama TAMAMEN calismiyordu).
-        # Once dogrudan tarama denenir; Gemini sadece o sonuc vermezse
-        # YEDEK olarak kullanilir.
-        scrape_note = None
+    if use_web_search and GEMINI_API_KEY:
         try:
-            from bs4 import BeautifulSoup
-            from urllib.parse import urljoin
-            url_match = re.search(r'https?://[^\s]+|www\.[^\s]+|[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', prompt)
-            if url_match:
-                target_url = url_match.group(0)
-                if not target_url.startswith('http'):
-                    target_url = 'https://' + target_url
-                headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-                try:
-                    r_scrape = requests.get(target_url, timeout=12, headers=headers)
-                except requests.exceptions.RequestException as e:
-                    scrape_note = f"[UYARI: {target_url} adresine erişilemedi - {e}]"
-                    r_scrape = None
-                if r_scrape is not None:
-                    if r_scrape.status_code == 200:
-                        soup = BeautifulSoup(r_scrape.text, 'html.parser')
-                        priority_links, other_links = [], []
-                        for a in soup.find_all('a', href=True):
-                            href = a['href']
-                            full_url = urljoin(target_url, href)
-                            text_l = a.get_text(strip=True) or href
-                            entry = f"- [{text_l}]({full_url})"
-                            if any(ext in href.lower() for ext in ['.pdf', '.zip', '.rar', '.xlsx', '.xls', 'indir', 'download', 'katalog', 'file']) or any(ext in text_l.lower() for ext in ['indir', 'download', 'katalog', 'dosya', 'pdf']):
-                                priority_links.append(entry)
-                            else:
-                                other_links.append(entry)
-                        if priority_links:
-                            web_context = f"[DOĞRUDAN WEB KAZIMA SONUÇLARI - İNDİRME/DOSYA BAĞLANTILARI ({target_url})]:\n" + "\n".join(priority_links[:30])
-                        elif other_links:
-                            web_context = f"[DOĞRUDAN WEB KAZIMA SONUÇLARI - belirgin bir 'indirme' linki bulunamadı, sayfadaki tüm bağlantılar ({target_url})]:\n" + "\n".join(other_links[:40])
-                        else:
-                            scrape_note = f"[UYARI: {target_url} tarandı ama sayfada hiç bağlantı bulunamadı - sayfa JavaScript ile mi yükleniyor olabilir?]"
-                    else:
-                        scrape_note = f"[UYARI: {target_url} adresi {r_scrape.status_code} durum koduyla yanıt verdi.]"
-
-            if not web_context and GEMINI_API_KEY:
-                search_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + GEMINI_API_KEY
-                search_payload = {
-                    "contents": [{"parts": [{"text": "Web üzerinde kapsamlı arama yap, resmi kaynakları, site yapısını ve indirme linklerini derle: " + prompt}]}],
-                    "tools": [{"googleSearch": {}}]
-                }
-                s_res = requests.post(search_url, json=search_payload, timeout=30)
-                if s_res.status_code == 200:
-                    s_parts = s_res.json().get("candidates", [{}])[0].get("content", {}).get("parts", [])
-                    web_context = "".join([p.get("text", "") for p in s_parts])
-                elif not scrape_note:
-                    scrape_note = f"[UYARI: Gemini web araması da başarısız oldu ({s_res.status_code}): {s_res.text[:300]}]"
-            elif not web_context and not GEMINI_API_KEY and not scrape_note:
-                scrape_note = "[UYARI: Doğrudan tarama sonuç vermedi ve Gemini API anahtarı tanımlı olmadığı için yedek arama da yapılamadı.]"
-
-            if not web_context and scrape_note:
-                web_context = scrape_note + " Bu durumu kullanıcıya açıkça belirt, veri yokken tahmini/uydurma bilgi verme."
-        except ImportError:
-            web_context = "[UYARI: BeautifulSoup kütüphanesi kurulu değil, web taraması yapılamadı. `pip install beautifulsoup4` gerekiyor. Bunu kullanıcıya belirt.]"
+            search_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + GEMINI_API_KEY
+            search_payload = {
+                "contents": [{"parts": [{"text": "Hedef Sorgu: " + prompt + "\n\nGörev: Bu sorgu için web üzerinde nokta atışı arama yap. Gürültülü içerikleri ve gereksiz metinleri ele. Doğrudan resmi kaynakları, site yapılarını, dosya ve katalog indirme linklerini net bir Markdown listesi olarak derle."}]}],
+                "tools": [{"googleSearch": {}}]
+            }
+            s_res = requests.post(search_url, json=search_payload, timeout=30)
+            if s_res.status_code == 200:
+                s_parts = s_res.json().get("candidates", [{}])[0].get("content", {}).get("parts", [])
+                web_context = "".join([p.get("text", "") for p in s_parts])
+            else:
+                web_context = f"[UYARI: Bulut web araması başarısız oldu ({s_res.status_code}): {s_res.text[:200]}]"
         except Exception as e:
-            print("Web arama/kazıma hatası:", e)
-            web_context = f"[UYARI: Web arama sırasında beklenmeyen bir hata oluştu: {e}. Bunu kullanıcıya belirt.]"
-
+            web_context = f"[UYARI: Bulut arama hatası: {e}]" 
     if web_context:
         prompt = f"[WEB VERİLERİ]:\n{web_context}\n\n[İSTEK]:\n{prompt}"
-        # TESHIS ICIN: tarama basarili da olsa basarisiz da olsa, modele
-        # GERCEKTE ne gittigini konsola yazdiriyoruz - "model uydurdu mu
-        # yoksa gercek (ama sinirli) veriye mi dayandi" sorusunu tahmin
-        # etmek yerine kesin olarak gorebilmek icin.
-        print(f"[WEB-CONTEXT ({len(web_context)} karakter)]:\n{web_context[:1500]}\n[...]")
-
-    # RAG: proje indekslenmisse, TUM dizini her mesajda gondermek yerine
-    # (eski, yavas/context-tasiran yontem) sadece bu soruyla alakali
-    # birkac parcayi ChromaDB'den araytip prompt'a ekliyoruz - HER
-    # mesajda taze, kucuk ve alakali. Indekslenmemis projelerde bu None
-    # doner, file_package (client'in gonderdigi eski-tip tam paket)
-    # normal sekilde kullanilmaya devam eder.
-    if is_project and project_name and not file_package:
-        rag_context = _rag_query(project_name, prompt, k=5)
-        if rag_context:
-            file_package = rag_context
 
     if file_package:
         m_lower = (model or "").lower()
@@ -932,6 +672,7 @@ def api_delete_project():
         return jsonify({"status": "error", "message": "Proje bulunamadÄ±."}), 404
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
+
 
 
 

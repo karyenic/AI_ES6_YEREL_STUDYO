@@ -74,6 +74,8 @@ export const Workspace = {
       State.activeProjectName = d.project.name;
       State.activeProjectPath = d.project.path;
       State.activeProjectPackageContent = d.package_content;
+      State.activeProjectIndexed = !!d.project.indexed;
+      State.activeProjectChunkCount = d.project.chunk_count || 0;
 
       // ÇÖZÜM: Workspace aktifken manuel "Klasör Oku" butonu kilitlenir
       const folderBtn = document.getElementById('folderBtn');
@@ -107,7 +109,13 @@ export const Workspace = {
       const activeBanner = document.getElementById('activeProjectBanner');
       const activeLabel = document.getElementById('activeProjectLabel');
       if (activeBanner) activeBanner.style.display = 'block';
-      if (activeLabel) activeLabel.textContent = `📁 ${name} (${d.file_count} dosya) — aktif`;
+      if (activeLabel) {
+        const ragInfo = State.activeProjectIndexed
+          ? `🟢 RAG aktif (${State.activeProjectChunkCount} parça) - her mesajda sadece alakalı içerik aranır`
+          : `⚪ RAG indekslenmemiş - tüm dizin tek seferde gönderiliyor (büyük projelerde yavaş olabilir)`;
+        activeLabel.innerHTML = `📁 ${name} (${d.file_count} dosya) — aktif<br><span style="font-size:.75rem;font-weight:400;">${ragInfo}</span>`;
+      }
+      this._renderIndexButton(name, renderCallback);
 
       State.saveToStorage();
       if (renderCallback) renderCallback();
@@ -116,10 +124,44 @@ export const Workspace = {
     }
   },
 
+  _renderIndexButton(name, renderCallback) {
+    const banner = document.getElementById('activeProjectBanner');
+    if (!banner) return;
+    let btn = document.getElementById('indexProjectBtn');
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.id = 'indexProjectBtn';
+      btn.style.cssText = 'margin-top:6px;width:100%;padding:5px;border-radius:4px;border:none;cursor:pointer;font-size:.8rem;background:#374151;color:#fff;';
+      banner.appendChild(btn);
+    }
+    btn.textContent = State.activeProjectIndexed ? '🔄 Yeniden İndeksle (RAG)' : '⚡ İndeksle (RAG) - Büyük projelerde önerilir';
+    btn.onclick = async () => {
+      if (!confirm(`"${name}" projesi indekslenecek. Dosya sayısına göre bu birkaç dakika sürebilir (her parça için yerel bir embedding çağrısı yapılıyor). Devam edilsin mi?`)) return;
+      btn.disabled = true;
+      btn.textContent = '⏳ İndeksleniyor... (bekleyin, süre dizin boyutuna bağlı)';
+      try {
+        const res = await API.indexProject(name);
+        if (res.status === 'success') {
+          alert(`İndeksleme tamamlandı: ${res.file_count} dosya, ${res.chunk_count} parça.`);
+          this.activateProject(name, renderCallback); // durumu tazele
+        } else {
+          alert('İndeksleme hatası: ' + res.message);
+          btn.disabled = false;
+          btn.textContent = '⚡ İndeksle (RAG)';
+        }
+      } catch (e) {
+        alert('Sunucuya ulaşılamadı: ' + e.message);
+        btn.disabled = false;
+      }
+    };
+  },
+
   exitProject() {
     State.activeProjectName = null;
     State.activeProjectPath = null;
     State.activeProjectPackageContent = null;
+    State.activeProjectIndexed = false;
+    State.activeProjectChunkCount = 0;
 
     const activeBanner = document.getElementById('activeProjectBanner');
     if (activeBanner) activeBanner.style.display = 'none';

@@ -39,17 +39,6 @@ export const API = {
     });
     return await res.json();
   },
-  async indexProject(name) {
-    // Buyuk projelerde her parca icin ayri embedding cagrisi yapildigi
-    // icin uzun surebilir - timeout koymuyoruz, fetch varsayilanini
-    // kullaniyoruz.
-    const res = await fetch('/api/projects/index', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name })
-    });
-    return await res.json();
-  },
   async deleteConversation(id) {
     const res = await fetch('/api/conversations/delete', {
       method: 'POST',

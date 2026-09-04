@@ -7,6 +7,8 @@
   activeProjectPackageContent: null,
   activeProjectName: null,
   activeProjectPath: null,
+  activeProjectIndexed: false,
+  activeProjectChunkCount: 0,
   projectConvMap: {},
   projectContextSentFor: {},
   themeMode: 0,

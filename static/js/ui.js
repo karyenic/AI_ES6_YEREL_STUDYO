@@ -46,7 +46,7 @@ export const UI = {
     this.updateGpuStatus();
     setInterval(() => this.updateGpuStatus(), 4000);
 
-    Workspace.initWorkspaceUI(() => { this.renderHistory(); this.renderChat(); this.updateTopBadge(State.conversations[State.currentId]); });
+    Workspace.initWorkspaceUI(() => this.renderHistory());
 
     if (!State.currentId || !State.conversations[State.currentId]) {
       this.createNewChat();
@@ -268,7 +268,7 @@ export const UI = {
         this.renderChat();
         this.updateTopBadge(State.conversations[id]);
         this.stopBtn.style.display = State.conversations[id]?.pending ? 'inline-block' : 'none';
-        if (isProjectConv) Workspace.activateProject(State.projectConvMap[id], () => { this.renderHistory(); this.renderChat(); this.updateTopBadge(State.conversations[State.currentId]); });
+        if (isProjectConv) Workspace.activateProject(State.projectConvMap[id], () => this.renderHistory());
       };
       this.historyList.appendChild(div);
     });
@@ -832,7 +832,8 @@ export const UI = {
         filePackage: pkg,
         role: this.roleSelect.value || 'default',
         web_search: !!forceWeb,
-        is_project: !!State.projectConvMap?.[targetId]
+        is_project: !!State.projectConvMap?.[targetId],
+        project_name: State.projectConvMap?.[targetId] || ''
       };
 
       const res = await API.chat(payload, conv.abortCtrl.signal);
@@ -903,7 +904,5 @@ export const UI = {
     }
   }
 };
-
-
 
 
