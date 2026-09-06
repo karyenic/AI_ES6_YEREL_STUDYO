@@ -1,20 +1,22 @@
-# Intel Arc 140V + IPEX-LLM + Ollama Bridge
+# GK AI STUDIO — Intel Arc 140V + IPEX-LLM Bridge
 
-## 2026-09-05 doğrulama
+## 2026-09-06 durum
 
-Bu sürüm, Intel Arc 140V üzerinde doğrudan çalışan IPEX `ollama-lib.exe runner` ile GK AI STUDIO arasına uyumluluk katmanı ekler.
+Bu branch, Intel Arc 140V üzerinde doğrudan çalışan IPEX `ollama-lib.exe runner` ile GK AI STUDIO arasındaki uyumluluk katmanını ve tek konsollu başlatma düzenini içerir.
 
-### Kanıtlanmış GPU zinciri
+## Kanıtlanmış GPU zinciri
 
 - Intel Arc 140V GPU 16 GB
 - Level Zero / SYCL cihazı görüldü
 - Qwen 2.5 Coder 7B Q4_K_M modeli yüklendi
 - `offloaded 29/29 layers to GPU`
 - Runner: `127.0.0.1:59584`
-- `/health` → `{"status":0,"progress":1}`
-- `/completion` gerçek token üretti
+- `/health` başarılı
+- `/completion` gerçek token üretimi başarılı
+- Bridge: `127.0.0.1:11434`
+- GK AI STUDIO: `127.0.0.1:5000`
 
-### Mimari
+## Mimari
 
 ```text
 GK AI STUDIO
@@ -35,27 +37,62 @@ ggml-sycl / Level Zero
 Intel Arc 140V
 ```
 
-`app.py` bu sürümde IPEX/SYCL bilgisi taşımaz. Mevcut `app.py`, Ollama API'sine `127.0.0.1:11434` üzerinden istek göndermeye devam eder.
+`app.py` IPEX/SYCL ayrıntılarını taşımaz; Ollama uyumlu API'ye `127.0.0.1:11434` üzerinden bağlanır.
 
-## Dosyalar
+## Tek konsol düzeni
 
-- `ai_bridge.py` — temel `/api/chat`, `/api/generate`, `/api/tags`, `/api/ps`, `/api/version` uyumluluğu.
-- `baslat.bat` — IPEX runner + bridge + Flask başlatma orkestrasyonu.
+`baslat_ipex_bridge.bat` artık runner, bridge ve Flask için ayrı CMD pencereleri açmak yerine servisleri arka planda başlatmayı hedefler.
 
-## Önemli sınırlar
+Loglar:
 
-- Runner `--parallel 1` olduğundan bridge inference isteklerini seri hale getirir.
-- `/api/embeddings` bu sürümde bilinçli olarak `501` döndürür. RAG/embedding, ayrı test ve tasarım aşamasıdır.
-- Vision/multimodal istekleri henüz bridge'e taşınmamıştır.
-- Çoklu model desteği henüz yoktur; varsayılan model `qwen2.5-coder:7b`.
-- `app.py` değiştirilmemiştir.
+- `ipex_runner.log`
+- `ai_bridge.log`
+- `studio.log`
+
+Launcher kapanırken yalnızca **bu oturumda başlatılan** süreçleri durdurmayı hedefler. Daha önce çalışan runner/bridge süreçlerine dokunulmaz.
+
+## Model mimarisi
+
+Şu an gerçek IPEX runner tek model için yapılandırılmıştır:
+
+```text
+qwen2.5-coder:7b → IPEX runner → Intel Arc 140V
+```
+
+GK AI STUDIO içinde görünen diğer Ollama modellerinin otomatik olarak IPEX GPU'da çalıştığı varsayılmamalıdır.
+
+Hedeflenen sonraki mimari:
+
+```text
+                 ┌→ Qwen Coder 7B → IPEX → Arc
+GK AI STUDIO ────┼→ Qwen 2.5 7B  → IPEX → Arc
+                 ├→ DeepSeek R1   → IPEX → Arc
+                 └→ diğer modeller → uygun runner → Arc/CPU
+```
+
+Bu çoklu-model yapı henüz uygulanmış değildir. VRAM, runner yaşam döngüsü, model değiştirme ve eşzamanlılık ayrıca test edilmelidir.
+
+## RAG / Embedding
+
+`/api/embeddings` mevcut bridge sürümünde henüz gerçek embedding backend'ine bağlı değildir ve `501` döndürür.
+
+RAG embedding, sohbet modelinden ayrı bir katmandır. Önce embedding modelinin IPEX/SYCL üzerinde çalışması doğrulanacak; daha sonra bridge'e bağlanacaktır.
+
+## Context notu
+
+GK AI STUDIO mevcut `app.py` içinde chat isteklerinde `num_ctx=16384` göndermektedir. Mevcut IPEX runner başlangıçta `--ctx-size 4096` ile çalıştırılmıştır. Bu değerler sonraki performans/uyumluluk testinde birlikte ele alınmalıdır.
 
 ## Çalıştırma
 
-1. IPEX runner'ın 59584 üzerinde çalıştığından emin olun veya `baslat.bat` ile başlatın.
-2. `baslat.bat` bridge'i 11434'te açar.
-3. Flask uygulaması 5000'de başlar.
-4. Test: `curl http://127.0.0.1:11434/api/version`
-5. Chat testi için GK AI STUDIO arayüzü kullanılabilir.
+1. Normal Ollama'nın 11434 portunu kullanmadığından emin olun.
+2. `baslat_ipex_bridge.bat` çalıştırın.
+3. Launcher tek konsolda durum bilgisini gösterir.
+4. Tarayıcı `http://127.0.0.1:5000` adresine açılır.
+5. Gerekirse loglar Studio klasöründeki `.log` dosyalarından incelenir.
 
-> Not: Sistemde normal Ollama da 11434 kullanıyorsa önce kapatılmalıdır. Bu mimaride 11434 bridge'e ayrılmıştır.
+## Güvenlik / stabilite ilkesi
+
+- `app.py` gereksiz yere değiştirilmez.
+- Çalışan Qwen + IPEX zinciri bozulmaz.
+- Yeni model desteği gerçek GPU doğrulaması olmadan aktif kabul edilmez.
+- RAG embedding, chat'ten ayrı ve kontrollü aşamada eklenir.
