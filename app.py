@@ -1,4 +1,4 @@
-import os, sys, json, time, subprocess, requests, signal, threading, re, csv
+﻿import os, sys, json, time, subprocess, requests, signal, threading, re, csv
 from flask import Flask, request, jsonify, send_from_directory, send_file, Response, stream_with_context, make_response
 import io
 import psutil
@@ -334,9 +334,7 @@ def api_index_project():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 def _rag_query(proj_name, query, k=5):
-    """Bir proje icin en alakali k parcayi getirir. Proje indekslenmemisse
-    veya chromadb yoksa None doner - cagiran yer bu durumda eski 'tam
-    paket' yontemine geri donmeli (geriye donuk uyumluluk)."""
+    """Bir proje için en alakalı k parçayı getirir ve bulduğu kaynakları canlı olarak konsola basar."""
     if not CHROMADB_AVAILABLE:
         return None
     try:
@@ -345,21 +343,48 @@ def _rag_query(proj_name, query, k=5):
         try:
             collection = client.get_collection(coll_name)
         except Exception:
-            return None  # henuz indekslenmemis
-        query_emb = _get_embedding(query)
-        results = collection.query(query_embeddings=[query_emb], n_results=k)
+            return None  # Henüz indekslenmemiş
+        
+        # Nomic model uyumluluğu için arama öneki
+        search_query = f"search_query: {query}" if "nomic" in EMBED_MODEL.lower() else query
+        query_emb = _get_embedding(search_query)
+        
+        results = collection.query(
+            query_embeddings=[query_emb],
+            n_results=k,
+            include=["documents", "metadatas", "distances"]
+        )
+        
         docs = results.get("documents", [[]])[0]
         metas = results.get("metadatas", [[]])[0]
+        distances = results.get("distances", [[]])[0]
+        
         if not docs:
+            print(f"\n[RAG CANLI LOG] ⚠️ '{proj_name}' projesinde sorgu için alakalı parça bulunamadı.")
             return None
+
+        # Terminal Görsel Loglama
+        print("\n" + "="*70)
+        print(f"🔍 [RAG CANLI LOG] Proje: '{proj_name}' | Bulunan Eşleşme Sayısı: {len(docs)}")
+        print(f"❓ Arama Sorgusu: \"{query[:80]}...\"" if len(query) > 80 else f"❓ Arama Sorgusu: \"{query}\"")
+        print("-" * 70)
+
         parts = []
-        for doc, meta in zip(docs, metas):
-            parts.append(f"--- DOSYA: {meta.get('file', '?')} (parça {meta.get('chunk', '?')}) ---\n{doc}")
+        for idx, (doc, meta) in enumerate(zip(docs, metas), 1):
+            dist = distances[idx-1] if distances and len(distances) >= idx else 0.0
+            # Mesafe / Benzerlik oranı hesaplaması (Cosine / L2 dönüşümü)
+            similarity_score = round(max(0.0, 1.0 - dist), 4) if dist <= 1.0 else round(dist, 4)
+            file_name = meta.get('file', '?')
+            chunk_num = meta.get('chunk', '?')
+            
+            print(f" 📄 [{idx}] Dosya: {file_name} (Parça: {chunk_num}) | Benzerlik / Skor: {similarity_score}")
+            parts.append(f"--- DOSYA: {file_name} (parça {chunk_num}) ---\n{doc}")
+
+        print("="*70 + "\n")
         return "[PROJE İÇİNDEN İLGİLİ BULUNAN PARÇALAR (RAG)]:\n" + "\n\n".join(parts)
     except Exception as e:
-        print(f"[RAG SORGU HATASI] {e}")
+        print(f"\n❌ [RAG CANLI LOG HATASI] {e}\n")
         return None
-
 @app.route('/api/projects/activate', methods=['POST'])
 def api_activate_project():
     try:
@@ -532,24 +557,31 @@ def image_to_excel():
     except Exception as e: return jsonify({"error": str(e)}), 500
 
 def get_num_ctx(model_name, extra_chars=0, is_project=False):
-    """KULLANICI GERI BILDIRIMI: daha once model kategorisine gore 16K
-    tavanla iyi yanitlar aliniyordu. Sonra "64k" etiketli modeller icin
-    32768/65536'ya cikan bir tavan eklendi - bu, Arc/IPEX donaniminda
-    pratikte DAHA YAVAS ve sorunlu sonuc verdi (uzun prefill sureleri,
-    2+ dakikaya varan bekleme). Tavan tekrar 16384'e sabitlendi - model
-    adinin '64k' icermesi ARTIK tavani yukseltmiyor, sadece kategoriye
-    gore hangi kademenin secilecegini etkiliyor (kucuk mesajlar hala
-    kucuk/hizli kademede kalir)."""
+    """
+    Intel Arc GPU (IPEX) için optimize edilmiş dinamik context yönetimi.
+    Türkçe ve kod girdilerinde 1 token ~= 2.2 karakter kabul edilerek daha hassas hesaplama yapılır.
+    """
     tiers = [4096, 8192, 16384]
     hard_cap = 16384
-    needed = 2048 + int(extra_chars / 3)
-    if is_project:
-        needed = max(needed, 16384)
+    
+    # Türkçe metin & kodlar için hassas token tahmini (Karakter / 2.2)
+    estimated_tokens = int(extra_chars / 2.2)
+    needed = 2048 + estimated_tokens
+    
+    # Proje çalışma alanında veya büyük dosya paketlerinde direkt tavanı ver
+    if is_project or extra_chars > 12000:
+        return hard_cap
+        
+    # Model bazlı özel tavan (Küçük 2B/3B modellerde 8K ile sınırlandırıp hızı korur)
+    m_lower = model_name.lower()
+    if "2b" in m_lower or "3b" in m_lower:
+        hard_cap = 8192
+
     for t in tiers:
         if t >= needed:
             return min(t, hard_cap)
+            
     return hard_cap
-
 @app.route('/api/chat', methods=['POST'])
 def chat():
     data = request.json or {}
@@ -586,71 +618,31 @@ def chat():
 
     web_context = ""
     if use_web_search:
-        # ONEMLI: dogrudan site taramasi (BeautifulSoup) Gemini'ye ihtiyac
-        # DUYMAZ - bu kod bir kez daha yanlislikla SADECE Gemini'ye bagli
-        # hale getirilmisti (GEMINI_API_KEY yoksa/gecersizse veya Gemini
-        # kota/baglanti sorunu yasarsa web arama TAMAMEN calismiyordu).
-        # Once dogrudan tarama denenir; Gemini sadece o sonuc vermezse
-        # YEDEK olarak kullanilir.
-        scrape_note = None
-        try:
-            from bs4 import BeautifulSoup
-            from urllib.parse import urljoin
-            url_match = re.search(r'https?://[^\s]+|www\.[^\s]+|[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', prompt)
-            if url_match:
-                target_url = url_match.group(0)
-                if not target_url.startswith('http'):
-                    target_url = 'https://' + target_url
-                headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-                try:
-                    r_scrape = requests.get(target_url, timeout=12, headers=headers)
-                except requests.exceptions.RequestException as e:
-                    scrape_note = f"[UYARI: {target_url} adresine erişilemedi - {e}]"
-                    r_scrape = None
-                if r_scrape is not None:
-                    if r_scrape.status_code == 200:
-                        soup = BeautifulSoup(r_scrape.text, 'html.parser')
-                        priority_links, other_links = [], []
-                        for a in soup.find_all('a', href=True):
-                            href = a['href']
-                            full_url = urljoin(target_url, href)
-                            text_l = a.get_text(strip=True) or href
-                            entry = f"- [{text_l}]({full_url})"
-                            if any(ext in href.lower() for ext in ['.pdf', '.zip', '.rar', '.xlsx', '.xls', 'indir', 'download', 'katalog', 'file']) or any(ext in text_l.lower() for ext in ['indir', 'download', 'katalog', 'dosya', 'pdf']):
-                                priority_links.append(entry)
-                            else:
-                                other_links.append(entry)
-                        if priority_links:
-                            web_context = f"[DOĞRUDAN WEB KAZIMA SONUÇLARI - İNDİRME/DOSYA BAĞLANTILARI ({target_url})]:\n" + "\n".join(priority_links[:30])
-                        elif other_links:
-                            web_context = f"[DOĞRUDAN WEB KAZIMA SONUÇLARI - belirgin bir 'indirme' linki bulunamadı, sayfadaki tüm bağlantılar ({target_url})]:\n" + "\n".join(other_links[:40])
-                        else:
-                            scrape_note = f"[UYARI: {target_url} tarandı ama sayfada hiç bağlantı bulunamadı - sayfa JavaScript ile mi yükleniyor olabilir?]"
-                    else:
-                        scrape_note = f"[UYARI: {target_url} adresi {r_scrape.status_code} durum koduyla yanıt verdi.]"
-
-            if not web_context and GEMINI_API_KEY:
+        if GEMINI_API_KEY:
+            try:
                 search_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + GEMINI_API_KEY
+                search_prompt = (
+                    "Lütfen şu hedef web sitesini veya konuyu canlı olarak derinlemesine tara: " + prompt + "\n" +
+                    "Talimatlar:\n" +
+                    "1. Sitedeki GERÇEK iletişim bilgilerini (açık adres, telefon numaraları, e-posta adresleri) eksiksiz çıkar.\n" +
+                    "2. Sitede yer alan tüm E-Katalog, PDF, çizim, belge ve indirilebilir dosya bağlantılarını tam URL adresleriyle listele.\n" +
+                    "3. Ürün kategorilerini ve site mimarisini detaylandır.\n" +
+                    "4. Veri bulamazsan ASLA tahmin yapma veya örnek/uydurma adres/telefon yazma; verinin taranan kaynakta yer almadığını açıkça belirt."
+                )
                 search_payload = {
-                    "contents": [{"parts": [{"text": "Web üzerinde kapsamlı arama yap, resmi kaynakları, site yapısını ve indirme linklerini derle: " + prompt}]}],
+                    "contents": [{"parts": [{"text": search_prompt}]}],
                     "tools": [{"googleSearch": {}}]
                 }
-                s_res = requests.post(search_url, json=search_payload, timeout=30)
+                s_res = requests.post(search_url, json=search_payload, timeout=40)
                 if s_res.status_code == 200:
                     s_parts = s_res.json().get("candidates", [{}])[0].get("content", {}).get("parts", [])
                     web_context = "".join([p.get("text", "") for p in s_parts])
-                elif not scrape_note:
-                    scrape_note = f"[UYARI: Gemini web araması da başarısız oldu ({s_res.status_code}): {s_res.text[:300]}]"
-            elif not web_context and not GEMINI_API_KEY and not scrape_note:
-                scrape_note = "[UYARI: Doğrudan tarama sonuç vermedi ve Gemini API anahtarı tanımlı olmadığı için yedek arama da yapılamadı.]"
-
-            if not web_context and scrape_note:
-                web_context = scrape_note + " Bu durumu kullanıcıya açıkça belirt, veri yokken tahmini/uydurma bilgi verme."
-        except ImportError:
-            web_context = "[UYARI: BeautifulSoup kütüphanesi kurulu değil, web taraması yapılamadı. `pip install beautifulsoup4` gerekiyor. Bunu kullanıcıya belirt.]"
-        except Exception as e:
-            print("Web arama/kazıma hatası:", e)
-            web_context = f"[UYARI: Web arama sırasında beklenmeyen bir hata oluştu: {e}. Bunu kullanıcıya belirt.]"
+                else:
+                    web_context = f"[UYARI: Gemini Web Ajanı yanıt veremedi ({s_res.status_code}): {s_res.text[:200]}]"
+            except Exception as e:
+                web_context = f"[UYARI: Web taraması sırasında hata oluştu: {e}]"
+        else:
+            web_context = "[UYARI: Gemini API anahtarı tanımlı olmadığı için web taraması yapılamadı.]"
 
     if web_context:
         prompt = f"[WEB VERİLERİ]:\n{web_context}\n\n[İSTEK]:\n{prompt}"
@@ -658,7 +650,7 @@ def chat():
         # GERCEKTE ne gittigini konsola yazdiriyoruz - "model uydurdu mu
         # yoksa gercek (ama sinirli) veriye mi dayandi" sorusunu tahmin
         # etmek yerine kesin olarak gorebilmek icin.
-        print(f"[WEB-CONTEXT ({len(web_context)} karakter)]:\n{web_context[:1500]}\n[...]")
+    print(f"[WEB-CONTEXT ({len(web_context)} karakter)]:\n{web_context[:1500]}\n[...]")
 
     # RAG: proje indekslenmisse, TUM dizini her mesajda gondermek yerine
     # (eski, yavas/context-tasiran yontem) sadece bu soruyla alakali
@@ -932,6 +924,10 @@ def api_delete_project():
         return jsonify({"status": "error", "message": "Proje bulunamadÄ±."}), 404
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
+
+
+
+
 
 
 

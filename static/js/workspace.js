@@ -1,5 +1,4 @@
-// static/js/workspace.js
-import { API } from './api.js';
+﻿import { API } from './api.js';
 import { State } from './state.js';
 
 export const Workspace = {
@@ -77,7 +76,6 @@ export const Workspace = {
       State.activeProjectIndexed = !!d.project.indexed;
       State.activeProjectChunkCount = d.project.chunk_count || 0;
 
-      // ÇÖZÜM: Workspace aktifken manuel "Klasör Oku" butonu kilitlenir
       const folderBtn = document.getElementById('folderBtn');
       if (folderBtn) {
         folderBtn.disabled = true;
@@ -87,9 +85,6 @@ export const Workspace = {
 
       const convId = d.project.conversationId;
       State.projectConvMap[convId] = name;
-      // Proje YENIDEN aktive edildi (dizin yeniden tarandi, guncel icerik
-      // geldi) - bir sonraki mesajda bu guncel icerigin bir kez daha
-      // gonderilmesi icin bayragi sifirliyoruz.
       if (State.projectContextSentFor) State.projectContextSentFor[convId] = false;
 
       if (!State.conversations[convId]) {
@@ -143,7 +138,7 @@ export const Workspace = {
         const res = await API.indexProject(name);
         if (res.status === 'success') {
           alert(`İndeksleme tamamlandı: ${res.file_count} dosya, ${res.chunk_count} parça.`);
-          this.activateProject(name, renderCallback); // durumu tazele
+          this.activateProject(name, renderCallback);
         } else {
           alert('İndeksleme hatası: ' + res.message);
           btn.disabled = false;

@@ -3,6 +3,8 @@ chcp 65001 >nul
 title GK AI STUDIO
 
 cd /d "C:\AI_YEREL\AI_ES6_YEREL_STUDYO"
+taskkill /F /IM ollama.exe >nul 2>&1
+timeout /t 2 /nobreak >nul
 
 echo [1/4] Intel GPU ortam degiskenleri ayarlaniyor...
 set OLLAMA_NUM_GPU=999

@@ -1,4 +1,4 @@
-export const API = {
+﻿export const API = {
   async getModels() {
     const res = await fetch('/models');
     return await res.json();
@@ -40,9 +40,6 @@ export const API = {
     return await res.json();
   },
   async indexProject(name) {
-    // Buyuk projelerde her parca icin ayri embedding cagrisi yapildigi
-    // icin uzun surebilir - timeout koymuyoruz, fetch varsayilanini
-    // kullaniyoruz.
     const res = await fetch('/api/projects/index', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -76,6 +73,14 @@ export const API = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ markdown_text, project_name })
     });
+  },
+  async exportFile(content, filename, project_name) {
+    const res = await fetch('/api/projects/export-file', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content, filename, project_name })
+    });
+    return await res.json();
   },
   async imageToExcel(image, use_cloud, project_name) {
     return await fetch('/image-to-excel', {

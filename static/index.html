@@ -156,5 +156,14 @@ body{background:var(--bg);color:var(--text);height:100vh;display:flex;overflow:h
   </div>
 </div>
 <script type="module" src="/static/js/main.js"></script>
+<script>
+function deleteMessageBubble(btn) {
+    const wrapper = btn.closest('.message-container') || btn.closest('.message-row') || btn.closest('.message-bubble') || btn.parentElement.parentElement;
+    if (wrapper) {
+        wrapper.remove();
+    }
+}
+</script>
 </body>
 </html>
+

@@ -9,3 +9,6 @@ uploads/
 .vs/
 *.log
 .DS_Store
+chroma_db/
+backup_*/
+*.bak
