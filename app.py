@@ -1,4 +1,4 @@
-﻿import os, sys, json, time, subprocess, requests, signal, threading, re, csv
+import os, sys, json, time, subprocess, requests, signal, threading, re, csv
 from flask import Flask, request, jsonify, send_from_directory, send_file, Response, stream_with_context, make_response
 import io
 import psutil
@@ -62,13 +62,6 @@ app = Flask(__name__, static_folder="static", template_folder="static")
 
 @app.after_request
 def add_no_cache_headers(response):
-    # ONEMLI: index.html icin onbellekleme kapatilmisti ama static/js/*.js
-    # ve static/css/*.css dosyalari icin HICBIR SEY yoktu - tarayicilar JS
-    # dosyalarini agresif sekilde onbellekliyor. Bu, "dosyayi degistirdim
-    # ama hala eski davranis var" seklindeki tekrarlayan sorunlarin
-    # muhtemel bir kaynagiydi - kod diskte guncellenmis olsa bile tarayici
-    # sekmeyi normal yeniledigimizde hala ESKI ui.js'i bellekten
-    # kullanabiliyordu. Artik TUM yanitlar icin onbellekleme kapali.
     if request.path.startswith('/static/'):
         response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
         response.headers['Pragma'] = 'no-cache'
@@ -188,24 +181,6 @@ def _scan_project_folder(proj_path):
             except: pass
     return package_text, count
 
-# =============================================================================
-# RAG (Retrieval-Augmented Generation) - PROJE KLASORU ICIN AKILLI ARAMA
-# =============================================================================
-# ONCEKI YONTEM: proje aktive edilince TUM dizin tek bir dev metin
-# paketine donusturulup modele oldugu gibi veriliyordu. Bu, buyuk
-# projelerde bag lam penceresi tasmasina (ctx tavan asimi -> model
-# yeniden yukleme -> 1-2+ dakika bekleme) ve "her mesajda ayni/benzer
-# cevap" sorununa yol aciyordu. RAG ile bunun yerine:
-#   1) Dosyalar kucuk parcalara (chunk) bolunur
-#   2) Her parca yerel bir embedding modeliyle (Ollama uzerinden,
-#      nomic-embed-text) sayisal vektore cevrilip ChromaDB'ye kaydedilir
-#      (BIR KERE yapilir - "Indeksle" butonuna basildiginda)
-#   3) Her mesajda, SADECE o soruyla alakali birkac parca aranip bulunur
-#      ve modele o kadari verilir - tum dizin degil. Bu hem cok daha
-#      hizli hem de model gercekten alakali veriyi gorur.
-# Kucuk projeler icin eski "tam paket" yontemi hala calisir (proje
-# indekslenmemisse otomatik olarak ona duser - geriye donuk uyumlu).
-# =============================================================================
 CHROMA_DIR = os.path.join(BASE_DIR, "chroma_db")
 EMBED_MODEL = os.environ.get("OLLAMA_EMBED_MODEL", "nomic-embed-text")
 
@@ -216,17 +191,11 @@ def _chroma_client():
     return chromadb.PersistentClient(path=CHROMA_DIR)
 
 def _safe_collection_name(proj_name):
-    # ChromaDB koleksiyon adi kurallari: 3-63 karakter, sadece harf/rakam/
-    # alt cizgi/tire, harf veya rakamla baslayip bitmeli.
     safe = re.sub(r'[^a-zA-Z0-9_-]', '_', proj_name).strip('_-')
     safe = "proj_" + safe if safe else "proj_default"
     return safe[:63]
 
 def _get_embedding(text):
-    """Ollama'nin embedding uc noktasini kullanir - tamamen yerel, buluta
-    hic cikmaz. nomic-embed-text kurulu degilse acik bir hata firlatir
-    (cagiran yer bunu kullaniciya bildirir - 'ollama pull nomic-embed-text'
-    calistirmasi gerekir)."""
     r = requests.post(
         "http://127.0.0.1:11434/api/embeddings",
         json={"model": EMBED_MODEL, "prompt": text},
@@ -240,9 +209,6 @@ def _get_embedding(text):
     return emb
 
 def _chunk_text(text, chunk_size=900, overlap=150):
-    """Basit kaydirmali pencere ile parcalama. Kod/metin dosyalari icin
-    yeterince iyi calisir - cok gelismis (cumle/paragraf siniri gozeten)
-    bir parcalayici degil ama pratikte iyi sonuc verir."""
     chunks = []
     start = 0
     n = len(text)
@@ -258,10 +224,6 @@ def _chunk_text(text, chunk_size=900, overlap=150):
 
 @app.route('/api/projects/index', methods=['POST'])
 def api_index_project():
-    """Proje dizinini tarar, dosyalari parcalara boler, her parcayi
-    embed edip ChromaDB'ye yazar. Buyuk projelerde biraz surebilir
-    (her parca icin bir embedding cagrisi yapiliyor) - bu yuzden AYRI
-    bir adim, otomatik degil; kullanici ne zaman calisacagini bilsin."""
     if not CHROMADB_AVAILABLE:
         return jsonify({"status": "error", "message": "chromadb kurulu değil. Sunucuda 'pip install chromadb' çalıştırın."}), 500
     try:
@@ -278,7 +240,7 @@ def api_index_project():
         client = _chroma_client()
         coll_name = _safe_collection_name(proj_name)
         try:
-            client.delete_collection(coll_name)  # yeniden indeksleme - eskiyi temizle
+            client.delete_collection(coll_name)
         except Exception:
             pass
         collection = client.create_collection(coll_name)
@@ -312,7 +274,6 @@ def api_index_project():
                     metadatas.append({"file": rel_path, "chunk": i})
 
         if ids:
-            # ChromaDB tek seferde cok buyuk ekleme sevmeyebilir - 100'luk gruplar halinde ekle
             batch = 100
             for i in range(0, len(ids), batch):
                 collection.add(
@@ -334,7 +295,6 @@ def api_index_project():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 def _rag_query(proj_name, query, k=5):
-    """Bir proje için en alakalı k parçayı getirir ve bulduğu kaynakları canlı olarak konsola basar."""
     if not CHROMADB_AVAILABLE:
         return None
     try:
@@ -343,9 +303,8 @@ def _rag_query(proj_name, query, k=5):
         try:
             collection = client.get_collection(coll_name)
         except Exception:
-            return None  # Henüz indekslenmemiş
+            return None
         
-        # Nomic model uyumluluğu için arama öneki
         search_query = f"search_query: {query}" if "nomic" in EMBED_MODEL.lower() else query
         query_emb = _get_embedding(search_query)
         
@@ -363,7 +322,6 @@ def _rag_query(proj_name, query, k=5):
             print(f"\n[RAG CANLI LOG] ⚠️ '{proj_name}' projesinde sorgu için alakalı parça bulunamadı.")
             return None
 
-        # Terminal Görsel Loglama
         print("\n" + "="*70)
         print(f"🔍 [RAG CANLI LOG] Proje: '{proj_name}' | Bulunan Eşleşme Sayısı: {len(docs)}")
         print(f"❓ Arama Sorgusu: \"{query[:80]}...\"" if len(query) > 80 else f"❓ Arama Sorgusu: \"{query}\"")
@@ -372,7 +330,6 @@ def _rag_query(proj_name, query, k=5):
         parts = []
         for idx, (doc, meta) in enumerate(zip(docs, metas), 1):
             dist = distances[idx-1] if distances and len(distances) >= idx else 0.0
-            # Mesafe / Benzerlik oranı hesaplaması (Cosine / L2 dönüşümü)
             similarity_score = round(max(0.0, 1.0 - dist), 4) if dist <= 1.0 else round(dist, 4)
             file_name = meta.get('file', '?')
             chunk_num = meta.get('chunk', '?')
@@ -385,6 +342,7 @@ def _rag_query(proj_name, query, k=5):
     except Exception as e:
         print(f"\n❌ [RAG CANLI LOG HATASI] {e}\n")
         return None
+
 @app.route('/api/projects/activate', methods=['POST'])
 def api_activate_project():
     try:
@@ -403,10 +361,6 @@ def api_activate_project():
             save_projects_config(config)
 
         is_indexed = bool(proj.get("indexed")) and CHROMADB_AVAILABLE
-        # RAG ile indekslenmis bir proje icin devasa paketi client'a hic
-        # gondermeye gerek yok - her mesajda backend zaten alakali parcalari
-        # kendisi bulacak (bkz. /api/chat, is_project + project_name).
-        # Indekslenmemisse eski davranisa (tam paket) geri donuluyor.
         if is_indexed:
             package_text, count = "", proj.get("indexed_file_count", 0)
         else:
@@ -557,22 +511,15 @@ def image_to_excel():
     except Exception as e: return jsonify({"error": str(e)}), 500
 
 def get_num_ctx(model_name, extra_chars=0, is_project=False):
-    """
-    Intel Arc GPU (IPEX) için optimize edilmiş dinamik context yönetimi.
-    Türkçe ve kod girdilerinde 1 token ~= 2.2 karakter kabul edilerek daha hassas hesaplama yapılır.
-    """
     tiers = [4096, 8192, 16384]
     hard_cap = 16384
     
-    # Türkçe metin & kodlar için hassas token tahmini (Karakter / 2.2)
     estimated_tokens = int(extra_chars / 2.2)
     needed = 2048 + estimated_tokens
     
-    # Proje çalışma alanında veya büyük dosya paketlerinde direkt tavanı ver
     if is_project or extra_chars > 12000:
         return hard_cap
         
-    # Model bazlı özel tavan (Küçük 2B/3B modellerde 8K ile sınırlandırıp hızı korur)
     m_lower = model_name.lower()
     if "2b" in m_lower or "3b" in m_lower:
         hard_cap = 8192
@@ -582,6 +529,7 @@ def get_num_ctx(model_name, extra_chars=0, is_project=False):
             return min(t, hard_cap)
             
     return hard_cap
+
 @app.route('/api/chat', methods=['POST'])
 def chat():
     data = request.json or {}
@@ -646,18 +594,8 @@ def chat():
 
     if web_context:
         prompt = f"[WEB VERİLERİ]:\n{web_context}\n\n[İSTEK]:\n{prompt}"
-        # TESHIS ICIN: tarama basarili da olsa basarisiz da olsa, modele
-        # GERCEKTE ne gittigini konsola yazdiriyoruz - "model uydurdu mu
-        # yoksa gercek (ama sinirli) veriye mi dayandi" sorusunu tahmin
-        # etmek yerine kesin olarak gorebilmek icin.
     print(f"[WEB-CONTEXT ({len(web_context)} karakter)]:\n{web_context[:1500]}\n[...]")
 
-    # RAG: proje indekslenmisse, TUM dizini her mesajda gondermek yerine
-    # (eski, yavas/context-tasiran yontem) sadece bu soruyla alakali
-    # birkac parcayi ChromaDB'den araytip prompt'a ekliyoruz - HER
-    # mesajda taze, kucuk ve alakali. Indekslenmemis projelerde bu None
-    # doner, file_package (client'in gonderdigi eski-tip tam paket)
-    # normal sekilde kullanilmaya devam eder.
     if is_project and project_name and not file_package:
         rag_context = _rag_query(project_name, prompt, k=5)
         if rag_context:
@@ -675,6 +613,7 @@ def chat():
     system_msg = SYSTEM_PROFILE + ("\n[SİSTEM ROLÜ]: " + role_instruction if role_instruction else "")
 
     def generate_stream():
+        start_time = time.time()  # ⏱️ MODEL ZAMAN SAYAÇ BAŞLANGICI
         yield "data: " + json.dumps({"type": "meta", "model": model, "route": route_label}) + "\n\n"
         if not model.startswith("gemini"):
             ollama_messages = [{"role": "system", "content": system_msg}]
@@ -704,11 +643,17 @@ def chat():
                     if line:
                         chunk = json.loads(line.decode('utf-8'))
                         if "error" in chunk:
-                            yield "data: " + json.dumps({"type": "error", "message": f"Ollama: {chunk['error']}"}) + "\n\n"
+                            elapsed_time = round(time.time() - start_time, 2)
+                            yield "data: " + json.dumps({"type": "error", "message": f"Ollama: {chunk['error']}", "elapsed_time": elapsed_time}) + "\n\n"
                             break
                         content = chunk.get("message", {}).get("content", "")
                         if content: yield "data: " + json.dumps({"type": "chunk", "text": content}) + "\n\n"
-            except Exception as e: yield "data: " + json.dumps({"type": "error", "message": str(e)}) + "\n\n"
+                
+                elapsed_time = round(time.time() - start_time, 2)
+                yield "data: " + json.dumps({"type": "done", "elapsed_time": elapsed_time}) + "\n\n"
+            except Exception as e:
+                elapsed_time = round(time.time() - start_time, 2)
+                yield "data: " + json.dumps({"type": "error", "message": str(e), "elapsed_time": elapsed_time}) + "\n\n"
         else:
             try:
                 url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + GEMINI_API_KEY
@@ -718,20 +663,18 @@ def chat():
                     parts.append({"inline_data": {"mime_type": "image/jpeg", "data": re.sub(r'^data:image/.+;base64,', '', img)}})
                 payload = {"contents": [{"parts": parts}]}
                 res = requests.post(url, json=payload, timeout=60)
+                elapsed_time = round(time.time() - start_time, 2)
                 if res.status_code == 200:
                     ans = "".join([p.get("text", "") for p in res.json().get("candidates", [{}])[0].get("content", {}).get("parts", [])])
                     if not ans:
                         ans = f"[UYARI: Gemini 200 döndü ama yanıt metni boş geldi. Ham yanıt: {res.text[:400]}]"
                     yield "data: " + json.dumps({"type": "chunk", "text": ans}) + "\n\n"
+                    yield "data: " + json.dumps({"type": "done", "elapsed_time": elapsed_time}) + "\n\n"
                 else:
-                    # ONEMLI: "Gemini Hatasi" gibi genel bir mesaj yerine
-                    # gercek durum kodu + Google'in kendi hata metnini
-                    # gosteriyoruz - "bulut calismiyor" sikayetini artik
-                    # tahmin etmek yerine dogrudan teshis edebiliriz
-                    # (gecersiz/degismis model adi, anahtar sorunu, kota
-                    # asimi vb. hepsi burada gorunur).
-                    yield "data: " + json.dumps({"type": "error", "message": f"Gemini API Hatası ({res.status_code}): {res.text[:500]}"}) + "\n\n"
-            except Exception as e: yield "data: " + json.dumps({"type": "error", "message": str(e)}) + "\n\n"
+                    yield "data: " + json.dumps({"type": "error", "message": f"Gemini API Hatası ({res.status_code}): {res.text[:500]}", "elapsed_time": elapsed_time}) + "\n\n"
+            except Exception as e:
+                elapsed_time = round(time.time() - start_time, 2)
+                yield "data: " + json.dumps({"type": "error", "message": str(e), "elapsed_time": elapsed_time}) + "\n\n"
     return Response(stream_with_context(generate_stream()), mimetype='text/event-stream')
 
 @app.route('/api/shutdown', methods=['POST'])
@@ -817,10 +760,6 @@ def grk_status():
 
     gpu_active = _check_windows_gpu_usage()
 
-    # ONEMLI: sadece "anahtar yeterince uzun mu" diye bakmak da bir ara
-    # geri gelmisti - bu, anahtar bicimsel olarak dogru ama GECERSIZ,
-    # SUresi dolmus veya kota asilmis olsa bile yesil gosterirdi. Kisa
-    # timeout'lu GERCEK bir baglanti denemesi yapiyoruz.
     gemini_ok = False
     if GEMINI_API_KEY:
         try:
@@ -905,33 +844,21 @@ def save_conversations():
         except: pass
     return jsonify({"status": "success"})
 
-if __name__ == '__main__':
-    app.run(host='127.0.0.1', port=5000, debug=False, threaded=True)
-
-
 @app.route('/api/projects/delete', methods=['POST'])
 def api_delete_project():
     try:
         data = request.get_json(silent=True) or {}
         proj_name = data.get("name", "").strip()
         if not proj_name:
-            return jsonify({"status": "error", "message": "Proje adÄ± zorunludur."}), 400
+            return jsonify({"status": "error", "message": "Proje adı zorunludur."}), 400
         config = load_projects_config()
         if proj_name in config:
             del config[proj_name]
             save_projects_config(config)
             return jsonify({"status": "success", "message": f"'{proj_name}' projesi silindi."})
-        return jsonify({"status": "error", "message": "Proje bulunamadÄ±."}), 404
+        return jsonify({"status": "error", "message": "Proje bulunamadı."}), 404
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
-
-
-
-
-
-
-
-
-
-
+if __name__ == '__main__':
+    app.run(host='127.0.0.1', port=5000, debug=False, threaded=True)

@@ -285,15 +285,13 @@ export const UI = {
     });
   },
 
-    attachMini(wrap, text, msgIndex) {
-    // Mevcut aksiyon satırı varsa temizle (tekrarlı eklemeyi önler)
+  attachMini(wrap, text, msgIndex) {
     const oldActions = wrap.querySelector('.msg-actions');
     if (oldActions) oldActions.remove();
 
     const row = document.createElement('div');
     row.className = 'msg-actions';
 
-    // 1. 📋 Kopyala Butonu
     const btnCopy = document.createElement('button');
     btnCopy.className = 'msg-action-btn';
     btnCopy.textContent = '📋 Kopyala';
@@ -303,7 +301,6 @@ export const UI = {
       setTimeout(() => btnCopy.textContent = '📋 Kopyala', 1500);
     };
 
-    // 2. 💾 İndir (Yanıtı Metin Dosyası Olarak İndir)
     const btnDownload = document.createElement('button');
     btnDownload.className = 'msg-action-btn';
     btnDownload.textContent = '💾 İndir';
@@ -316,7 +313,6 @@ export const UI = {
       URL.revokeObjectURL(a.href);
     };
 
-    // 3. 📁 Dosya Kaydet (Backend exports/ Dizinine Doğrudan Aktarma)
     const btnExport = document.createElement('button');
     btnExport.className = 'msg-action-btn';
     btnExport.style.borderColor = '#2b6e9e';
@@ -341,7 +337,6 @@ export const UI = {
       }
     };
 
-    // 4. 🗑️ Sil (Sohbet Hafızasından ve Ekrandan Silme)
     const btnDelete = document.createElement('button');
     btnDelete.className = 'msg-action-btn';
     btnDelete.style.borderColor = '#ef4444';
@@ -363,7 +358,6 @@ export const UI = {
     row.appendChild(btnExport);
     row.appendChild(btnDelete);
 
-    // Markdown Tablo Varsa: 📊 Excel İndir Ek Butonu
     if (text && text.includes('|') && text.split('\n').filter(l => l.includes('|')).length >= 2) {
       const ex = document.createElement('button');
       ex.className = 'msg-action-btn excel-btn';
@@ -425,7 +419,6 @@ export const UI = {
       }
       wrap.appendChild(msg);
 
-      // KİLİTLENEN WEB AJANI BANNER'I
       if (m.needsWebApproval) {
         const agentBox = document.createElement('div');
         agentBox.style.cssText = 'margin-top:8px;padding:12px 14px;background:linear-gradient(135deg, #1e293b, #0f172a);border:1px solid #3b82f6;border-radius:8px;display:flex;flex-direction:column;gap:10px;box-shadow:0 4px 12px rgba(59,130,246,0.25);';
@@ -443,15 +436,14 @@ export const UI = {
         const cancelBtn = agentBox.querySelector('.web-agent-btn-cancel');
 
         approvalBtn.onclick = () => {
-          // BUTON ANINDA FİZİKSEL OLARAK KİLİTLENİR (Çift tıklama önlenir)
           approvalBtn.disabled = true;
           cancelBtn.disabled = true;
           approvalBtn.style.opacity = '0.5';
           approvalBtn.style.cursor = 'not-allowed';
           approvalBtn.innerHTML = '⏳ Taranıyor...';
           
-          m.needsWebApproval = false; // tekrar render olursa banner çıkmasın
-          conv.hasWebContext = true;   // sohbete web bağlamı eklendi bayrağı
+          m.needsWebApproval = false;
+          conv.hasWebContext = true;
           State.saveToStorage();
 
           setTimeout(() => { agentBox.remove(); }, 150);
@@ -471,7 +463,11 @@ export const UI = {
 
       const ts = document.createElement('div');
       ts.className = 'msg-timestamp';
-      ts.textContent = this.getFormattedTimestamp(m.created || conv.created || Date.now());
+      let timeText = this.getFormattedTimestamp(m.created || conv.created || Date.now());
+      if (m.elapsed_time !== undefined && m.elapsed_time !== null) {
+        timeText += ` | ⏱️ ${m.elapsed_time} sn`;
+      }
+      ts.textContent = timeText;
       wrap.appendChild(ts);
       this.chatBox.appendChild(wrap);
     });
@@ -575,7 +571,6 @@ export const UI = {
       setTimeout(() => { try { window.close(); } catch {} }, 300);
     };
 
-    // Görsel Ekleme
     document.getElementById('selectImageBtn').onclick = () => document.getElementById('imageInput').click();
     document.getElementById('imageInput').onchange = async e => {
       for (const f of Array.from(e.target.files || [])) {
@@ -602,7 +597,6 @@ export const UI = {
       e.target.value = '';
     };
 
-    // Excel Çözme
     document.getElementById('excelBtn').onclick = async () => {
       if (!State.currentImages.length) { alert('Önce görsel eklemelisiniz!'); return; }
       const excelBtn = document.getElementById('excelBtn');
@@ -629,7 +623,6 @@ export const UI = {
       }
     };
 
-    // PDF Yükleme
     document.getElementById('pdfBtn').onclick = () => document.getElementById('pdfInput').click();
     document.getElementById('pdfInput').onchange = async e => {
       const f = e.target.files[0];
@@ -644,7 +637,6 @@ export const UI = {
       e.target.value = '';
     };
 
-    // Klasör Oku
     document.getElementById('folderBtn').onclick = () => document.getElementById('folderInput').click();
     document.getElementById('folderInput').onchange = async e => {
       const files = Array.from(e.target.files || []);
@@ -673,7 +665,6 @@ export const UI = {
       e.target.value = '';
     };
 
-    // TXT Gönder
     document.getElementById('txtBtn').onclick = () => document.getElementById('txtInput').click();
     document.getElementById('txtInput').onchange = async e => {
       const f = e.target.files[0];
@@ -690,7 +681,6 @@ export const UI = {
       e.target.value = '';
     };
 
-    // Kod Gönder
     document.getElementById('codeBtn').onclick = () => document.getElementById('codeInput').click();
     document.getElementById('codeInput').onchange = async e => {
       const files = Array.from(e.target.files || []);
@@ -711,7 +701,6 @@ export const UI = {
       e.target.value = '';
     };
 
-    // Sürükle Bırak ve Yapıştırma
     const inputAreaEl = document.getElementById('inputArea');
     inputAreaEl.addEventListener('dragover', (e) => { e.preventDefault(); inputAreaEl.style.borderColor = 'var(--accent)'; });
     inputAreaEl.addEventListener('dragleave', (e) => { e.preventDefault(); inputAreaEl.style.borderColor = 'var(--border)'; });
@@ -801,8 +790,6 @@ export const UI = {
   },
 
   needsWebSearch(text, conv) {
-    // AKILLI TETİKLEME: Eğer sohbette zaten web bağlamı varsa (hasWebContext = true),
-    // takip soruları için tekrar onay banner'ı ÇIKARILMAZ!
     if (conv && conv.hasWebContext) return false;
 
     const p = (text || '').toLowerCase();
@@ -819,7 +806,6 @@ export const UI = {
     const conv = State.conversations[State.currentId];
     if (!conv) return;
 
-    // Web arama onayı SADECE henüz web taranmamışsa ve tetikleyici kelime varsa sorulur
     if (text && this.needsWebSearch(text, conv) && !State.currentImages.length && !State.currentFilePackage) {
       conv.messages = (conv.messages || []).filter(m => !(m.role === 'system' && m.content === 'WELCOME'));
       conv.messages.push({ role: 'user', content: text, created: Date.now() });
@@ -889,7 +875,7 @@ export const UI = {
     const assistantMsg = { role: 'assistant', content: '', model: conv.model, created: Date.now() };
     conv.messages.push(assistantMsg);
 
-    let wrap = null, badge = null, msgDiv = null;
+    let wrap = null, badge = null, msgDiv = null, tsDiv = null;
     if (State.currentId === targetId) {
       wrap = document.createElement('div');
       wrap.className = 'msg-wrapper assistant';
@@ -903,7 +889,7 @@ export const UI = {
       msgDiv.innerHTML = '<span class="hourglass">⏳</span> Model düşünüyor...';
       wrap.appendChild(msgDiv);
 
-      const tsDiv = document.createElement('div');
+      tsDiv = document.createElement('div');
       tsDiv.className = 'msg-timestamp';
       tsDiv.textContent = this.getFormattedTimestamp(assistantMsg.created);
       wrap.appendChild(tsDiv);
@@ -966,9 +952,22 @@ export const UI = {
                 this.chatBox.scrollTop = this.chatBox.scrollHeight;
               }
             }
+          } else if (evt.type === 'done') {
+            if (evt.elapsed_time !== undefined) {
+              assistantMsg.elapsed_time = evt.elapsed_time;
+              if (tsDiv) {
+                tsDiv.textContent = this.getFormattedTimestamp(assistantMsg.created) + ` | ⏱️ ${evt.elapsed_time} sn`;
+              }
+            }
           } else if (evt.type === 'error') {
             acc += '\n[Hata] ' + evt.message;
             assistantMsg.content = acc;
+            if (evt.elapsed_time !== undefined) {
+              assistantMsg.elapsed_time = evt.elapsed_time;
+              if (tsDiv) {
+                tsDiv.textContent = this.getFormattedTimestamp(assistantMsg.created) + ` | ⏱️ ${evt.elapsed_time} sn`;
+              }
+            }
             if (State.currentId === targetId && msgDiv) msgDiv.textContent = acc;
           }
         }

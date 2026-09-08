@@ -6,8 +6,19 @@
         "memory": [],
         "conversationId": "proj_GMN _Muhasebe_1788221685",
         "indexed": true,
-        "indexed_chunk_count": 455,
+        "indexed_chunk_count": 452,
         "indexed_file_count": 45,
-        "indexed_at": 1788730603.7765996
+        "indexed_at": 1788899627.3418183
+    },
+    "Muhasebe": {
+        "path": "C:\\yedekler\\Gmn_Muhasebe",
+        "default_model": "auto",
+        "created_at": 1788890003.8691232,
+        "memory": [],
+        "conversationId": "proj_Muhasebe_1788901532",
+        "indexed": true,
+        "indexed_chunk_count": 493,
+        "indexed_file_count": 41,
+        "indexed_at": 1788901580.9396417
     }
 }
