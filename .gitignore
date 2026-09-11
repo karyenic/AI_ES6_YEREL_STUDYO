@@ -12,3 +12,7 @@ uploads/
 chroma_db/
 backup_*/
 *.bak
+
+chroma_db/
+baslat_ps1bak.txt
+*.sqlite3
