@@ -335,9 +335,6 @@ def _rag_query(proj_name, query, k=5):
             chunk_num = meta.get('chunk', '?')
             
             print(f" 📄 [{idx}] Dosya: {file_name} (Parça: {chunk_num}) | Benzerlik / Skor: {similarity_score}")
-            # --- DETAYLI RAG LOGU: İçeriğin ilk 120 karakter özetini basar ---
-            print(f"    ↳ İçerik Özet: {doc[:120].replace(chr(10), ' ').strip()}...")
-            
             parts.append(f"--- DOSYA: {file_name} (parça {chunk_num}) ---\n{doc}")
 
         print("="*70 + "\n")

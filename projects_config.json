@@ -1,24 +1,13 @@
 {
-    "GMN _Muhasebe": {
-        "path": "C:\\Gmn_Muhasebe",
+    "ENTEGRE_muhasebe_2026": {
+        "path": "C:\\ENTEGRE_MUHASEBE_2026",
         "default_model": "auto",
-        "created_at": 1787932988.8946936,
+        "created_at": 1786594883.6692183,
         "memory": [],
-        "conversationId": "proj_GMN _Muhasebe_1788221685",
+        "conversationId": "proj_ENTEGRE_muhasebe_2026_1789069124",
         "indexed": true,
-        "indexed_chunk_count": 452,
-        "indexed_file_count": 45,
-        "indexed_at": 1788899627.3418183
-    },
-    "Muhasebe": {
-        "path": "C:\\yedekler\\Gmn_Muhasebe",
-        "default_model": "auto",
-        "created_at": 1788890003.8691232,
-        "memory": [],
-        "conversationId": "proj_Muhasebe_1788901532",
-        "indexed": true,
-        "indexed_chunk_count": 493,
-        "indexed_file_count": 41,
-        "indexed_at": 1788901580.9396417
+        "indexed_chunk_count": 162,
+        "indexed_file_count": 20,
+        "indexed_at": 1789070098.8027873
     }
 }

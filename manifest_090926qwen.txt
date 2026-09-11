@@ -1,0 +1,95 @@
+Güncellenmiş manifest dosyasını aşağıda bulabilirsiniz:
+
+### MUHASEBE_MANIFEST.txt (Yeniden Yazılan)
+```plaintext
+---
+1. **Vizyon, Temel Amaç ve Çalışma Paradigması (Maddeler 1-15)**
+
+   - **Modüler Mimarı:** Tüm ERP bileşenleri (Stok, Cari, Sipariş, Finans, Fatura) birbirinden bağımsız UI ve iş mantığı katmanlarına ayrılacaktır.
+   - **Tekil Veritabanı Mantığı:** Tüm modüller `C:\Gmn_Muhasebe\data\muhasebe.db` (SQLite) veri kaynağı üzerinden atomik (ACID) işlemlerle haberleşir.
+   - **Masaüstü Performansı:** PyQt5 altyapısı ile anlık ekran güncellemeleri ve sıfır gecikmeli veri tablosu render işlemleri hedeflenmiştir.
+   - **Çoklu Firma/Çalışma Yılı:** Sistem, tek veritabanı içinde firma ve dönem izolasyonunu tam sağlayacaktır.
+   - **Kesintisiz Veri Güvenliği:** Betik güncellemeleri veya yeniden kurulumlar hiçbir zaman veritabanını (`.db`) silmeyecek, `CREATE TABLE IF NOT EXISTS` yaklaşımı korunacaktır.
+
+2. **Raporlar, Ayarlar ve Yıl Sonu Devir İşlemleri (Maddeler 131-140)**
+
+   - **Cari Bakiye Raporu:** Borçlu ve alacaklı carilerin toplu dökümü.
+   - **Stok Ekstresi ve Envanter:** Depodaki ürünlerin giriş/çıkış/kalan özeti.
+   - **KDV Özet Raporu:** Hesaplanan ve İndirilecek KDV fark raporu.
+   - **Kar / Zarar Analizi:** Satışlar ile maliyetler arasındaki brüt kar hesabı.
+   - **Satış Analiz Raporu:** Plasiyer, Bölge veya Ürün bazlı satış grafikleri.
+   - **Veritabanı Yedekleme:** SQLite veritabanının tek tıkla `.bak` olarak yedeklenmesi.
+   - **Veritabanı Geri Yükleme:** Alınan yedeğin sisteme sorunsuz geri yüklenmesi.
+
+3. **Sipariş ve Sevkiyat Modülü (Maddeler 71-85)**
+
+   - **Benzersiz Sipariş No:** `SIP-XXXXXX` formatında otomatik sipariş numarası.
+   - **Cari Bağlantısı:** Siparişin kesildiği cari hesap seçimi.
+   - **Sipariş Durumu:** Açık, Kısmi Sevk, Kapalı, İptal durumları.
+   - **Döviz Kuru:** Sipariş tarihindeki döviz kuru kaydı.
+   - **Sipariş Detay Satırları:** Ürün, sipariş miktarı, sevk edilen ve kalan miktar.
+   - **Kalan Miktar Hesaplama:** Sipariş verilen - Sevk edilen = Kalan.
+
+4. **Cari Modülü (Maddeler 136-150)**
+
+   - **Cari Ekstresi:** Carinin tüm fatura ve finans hareketleri tarih sırasıyla dökülebilmelidir.
+   - **Cari Grubu / Kategori:** Müşteri, Tedarikçi, Müşteri+Tedarikçi ayrımı yapılmalıdır.
+   - **Özel Notlar:** Cari karta dair serbest metin notları kaydedilebilmelidir.
+   - **İskonto Oranı:** Cari bazlı özel indirim oranı tanımlanabilmelidir.
+   - **Vade Gün Sayısı:** Cari bazlı varsayılan ödeme vadesi tutulmalıdır.
+   - **Cari Pasifize Etme:** Silmek yerine cari kartı pasife alma seçeneği olmalıdır.
+   - **Arama ve Filtreleme:** Ünvan veya koda göre dinamik tablo filtrelemesi olmalıdır.
+   - **Bakiye Güncelleme:** Tahsilat/Tediye işlemlerinde Bakiye anlık güncellenmelidir.
+   - **Fatura Bakiye Entegrasyonu:** Satış faturası cari bakiyeyi artırmalıdır.
+   - **İade Faturası Entegrasyonu:** İade faturası cari bakiyeyi düşürmelidir.
+   - **Çoklu Cari Listeleme:** QTableWidget üzerinde
+   - **Cari Ekstre Raporu:** Carinin tüm fatura ve finans hareketleri tarih sırasıyla dökülebilmelidir.
+   - **Stok Değerleme Raporu:** Maliyet ve Satış fiyatı üzerinden toplam stok değeri.
+
+5. **Finans Modülü (Maddeler 151-160)**
+
+   - **Kasa Hareketleri:** Giren/Giden paraların kaydedilmesi.
+   - **Banka İşlemleri:** Banka işlemlerinin otomatik olarak veritabanına kaydedilmesi.
+   - **Fatura Satır İskontoları:** Faturada belirli bir ürün için özel indirim oranları.
+   - **Çoklu KDV Yönetimi:** Bir faturada birden fazla KDV oranı yönetimi.
+   - **Finans Raporları:** Kar / Zarar, Maliye Durumu gibi finansal raporlar.
+   - **E-Fatura İptal İtiraz:** GİB portalı üzerinden iptal süreçlerini takip etme.
+   - **Kişisel Veri Koruma (KVKK):** Müşteri bilgilerinin e-faturaya güvenli aktarımı.
+   - **PDF / HTML Önizleme:** GİB formatındaki faturanın görselini ekranda render etme.
+
+6. **Loglama ve İzlenebilirlik:** Yapılan her stok ve finans hareketi zaman damgasıyla log tablolarına düşecektir.
+
+7. **Bakiye Entegrasyonu:** Cari ve Stok bakiyeleri manuel girilemez; sadece fatura, finans veya irsaliye hareketleriyle otomatik türetilir.
+
+8. **Modüller Arası Bağımlılık:** Bir fatura kesildiğinde stoktan miktar düşer, cariye borç/alacak işler ve stok loguna kayıt atar.
+
+9. **Kullanıcı Yetkilendirmesi:** Giriş yapan kullanıcının rolüne göre ekran butonları erişime açılacak veya kısıtlanacaktır.
+
+10. **Reçete ve Paket Mantığı:** Bir paket ürün satıldığında, paketi oluşturan alt ürünlerin stoğu otomatik güncellenecektir.
+
+11. **Dövizli Çalışma Esası:** Tüm belgelerde opsiyonel döviz kuru ve dövizli tutar takibi altyapı
+
+12. **Neler Yapılamadı? (Yıl Sonu Devri):** Dönem sonu kapatma ve yeni yıla bakiye devir otomasyonu betiğine eklenmedi.
+   - **Tıkanıklık Nedeni (Spagetti Betik):** Tek bir `master_setup.py` dosyası içinde tüm UI kodlarını string olarak tutmak okunabilirliği zorlaştırıyor.
+   - **Çözüm Paradigması:** Bundan sonraki her adımda mevcut modül kodları doğrudan klasör yapısı içinde ayrı dosyalar olarak geliştirilecek, `master_setup.py` sadece eksik dosyaları oluşturan bir koruyucu olarak kalacaktır.
+   - **Gelecek Adım (Kararlılık):** Bir sonraki adımımız **Fatura Satır İskontoları & Çoklu KDV Yönetimi** ve **Cari Ekstre Raporu** ekranlarının eklenmesidir.
+
+13. **Kullanıcı Arayüzü Desenleri:** Kullanıcı arayüz desenleri belirlendi ve kod yazımına başlanacak.
+   - **LoginWindow:** Giriş yapma ekranı
+   - **CariWindow:** Cari işlemleri için ekran
+   - **StokWindow:** Stok işlemleri için ekran
+   - **FinansWindow:** Finans işlemleri için ekran
+   - **FaturaWindow:** Fatura işlemleri için ekran
+
+14. **Modüller Arası İş Akışı:**
+   - **Cari Modülü:** Cari bilgilerini yönetir ve fatura işlemlerine verimli bir şekilde katkıda bulunur.
+   - **Stok Modülü:** Stok durumunu izler ve faturalar ve satış işlemlerinde stok miktarlarını günceller.
+   - **Finans Modülü:** Finans hareketlerini kaydeder, raporlar oluşturur ve banka işlemlerini yönetir.
+   - **Fatura Modülü:** Faturasını kesme, iptal etme ve PDF/HTML önizleme işlemleri sağlar.
+
+15. **API bağlantıları:** GİB portalı üzerinden fatura işlemi yapma API bağlantısı eklenecek.
+
+---
+```
+
+Bu manifest dosyası, projenin yapılarını ve güncel durumunu temel bir şekilde özetliyor. Herhangi bir durum veya gelişmeyi manifest dosyasına eklemek için "bu durum ve gelişmeyi manifest dosyasına ekle" komutunu kullanabilirsiniz.
