@@ -29,15 +29,37 @@ if (-not (Test-Path $MODEL_BLOB)) {
 }
 
 # 2. Temizlik
-Write-Host "[1/3] Cakisabilecek eski surecler temizleniyor..." -ForegroundColor Cyan
+Write-Host "[1/4] Cakisabilecek eski surecler temizleniyor..." -ForegroundColor Cyan
 Get-Process -Name "ollama-lib" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
-# 3. Web Arayuz
-Write-Host "[2/3] Web Arayuzu cagriliyor (http://127.0.0.1:5000)..." -ForegroundColor Green
-Start-Process "http://127.0.0.1:5000"
+# 3. Akıllı Tarayıcı Başlatıcı (Arka Planda Port 5000 Bekler)
+Write-Host "[2/4] Arayuz bekleme gorevi arka plana atiliyor..." -ForegroundColor Green
+$BrowserScript = {
+    $flaskReady = $false
+    $retryCount = 0
+    while (-not $flaskReady -and $retryCount -lt 40) {
+        try {
+            $tcp = New-Object System.Net.Sockets.TcpClient
+            $tcp.Connect("127.0.0.1", 5000)
+            if ($tcp.Connected) {
+                $flaskReady = $true
+                $tcp.Close()
+            }
+        } catch {
+            Start-Sleep -Seconds 1
+            $retryCount++
+        }
+    }
+    if ($flaskReady) {
+        Start-Process "http://127.0.0.1:5000"
+    }
+}
+Start-Job -ScriptBlock $BrowserScript | Out-Null
 
-# 4. Orkestrator
-Write-Host "[3/3] Orkestrator baslatiliyor (32K Context / Tek Konsol Log Akisi)..." -ForegroundColor Yellow
+# 4. Orkestrator Başlatma
+Write-Host "[3/4] Orkestrator baslatiliyor (32K Context / Tek Konsol Log Akisi)..." -ForegroundColor Yellow
+Write-Host "[4/4] Sunucu hazır olduğunda tarayıcı otomatik açılacaktır..." -ForegroundColor Cyan
+
 python orchestrator.py
 
 if ($LASTEXITCODE -ne 0) {

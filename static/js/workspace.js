@@ -1,4 +1,4 @@
-﻿import { API } from './api.js';
+import { API } from './api.js';
 import { State } from './state.js';
 
 export const Workspace = {

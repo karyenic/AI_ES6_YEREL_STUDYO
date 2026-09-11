@@ -154,7 +154,7 @@ export const UI = {
     if (!this.gpuIndicator) return;
     try {
       const data = await API.getGpuStatus();
-      this.gpuIndicator.textContent = data.info || 'GPU okunamadı';
+      this.gpuIndicator.textContent = data.info || 'GPU durumu alınamadı';
     } catch {
       this.gpuIndicator.textContent = 'GPU durumu alınamadı';
     }
@@ -387,6 +387,15 @@ export const UI = {
     wrap.appendChild(row);
   },
 
+  highlightCodeBlocks(container) {
+    if (window.hljs) {
+      const target = container || this.chatBox;
+      target.querySelectorAll('pre code').forEach((el) => {
+        hljs.highlightElement(el);
+      });
+    }
+  },
+
   renderChat() {
     const conv = State.conversations[State.currentId];
     if (!conv) return;
@@ -413,7 +422,11 @@ export const UI = {
       if (m.role === 'system' && m.content === 'WELCOME') {
         msg.innerHTML = '<strong>Hoş geldin, Güven</strong>. Sistem Sürüm GK+GPT v2.9 ES6 aktif.';
       } else if (m.role === 'assistant' || m.role === 'user') {
-        try { msg.innerHTML = marked.parse(m.content || ''); } catch { msg.textContent = m.content || ''; }
+        try { 
+          msg.innerHTML = typeof marked !== 'undefined' ? marked.parse(m.content || '') : (m.content || ''); 
+        } catch { 
+          msg.textContent = m.content || ''; 
+        }
       } else {
         msg.textContent = m.content;
       }
@@ -472,6 +485,7 @@ export const UI = {
       this.chatBox.appendChild(wrap);
     });
 
+    this.highlightCodeBlocks(this.chatBox);
     this.chatBox.scrollTop = this.chatBox.scrollHeight;
     if (this.stopBtn) this.stopBtn.style.display = conv.pending ? 'inline-block' : 'none';
   },
@@ -715,7 +729,7 @@ export const UI = {
 
       for (const f of files) {
         const lower = f.name.toLowerCase();
-        if (lower.endsWith(('.png', '.jpg', '.jpeg', '.webp'))) {
+        if (lower.endsWith('.png') || lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.webp')) {
           const b64 = await this.toBase64(f);
           State.currentImages.push(b64);
           const div = document.createElement('div');
@@ -947,7 +961,12 @@ export const UI = {
             acc += evt.text;
             assistantMsg.content = acc;
             if (State.currentId === targetId && msgDiv) {
-              msgDiv.textContent = acc;
+              try {
+                msgDiv.innerHTML = typeof marked !== 'undefined' ? marked.parse(acc) : acc;
+              } catch {
+                msgDiv.textContent = acc;
+              }
+              this.highlightCodeBlocks(msgDiv);
               if (this.chatBox.scrollHeight - this.chatBox.scrollTop - this.chatBox.clientHeight < 80) {
                 this.chatBox.scrollTop = this.chatBox.scrollHeight;
               }
@@ -968,7 +987,14 @@ export const UI = {
                 tsDiv.textContent = this.getFormattedTimestamp(assistantMsg.created) + ` | ⏱️ ${evt.elapsed_time} sn`;
               }
             }
-            if (State.currentId === targetId && msgDiv) msgDiv.textContent = acc;
+            if (State.currentId === targetId && msgDiv) {
+              try {
+                msgDiv.innerHTML = typeof marked !== 'undefined' ? marked.parse(acc) : acc;
+              } catch {
+                msgDiv.textContent = acc;
+              }
+              this.highlightCodeBlocks(msgDiv);
+            }
           }
         }
       }

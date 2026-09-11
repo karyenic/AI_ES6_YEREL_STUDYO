@@ -16,17 +16,8 @@ if sys.platform == "win32":
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
-EMBED_MODEL = None
-
-def _load_embed_model_async():
-    global EMBED_MODEL
-    try:
-        from sentence_transformers import SentenceTransformer
-        print("[BRIDGE] SentenceTransformer (all-MiniLM-L6-v2) yukleniyor...", flush=True)
-        EMBED_MODEL = SentenceTransformer('all-MiniLM-L6-v2')
-        print("[BRIDGE] Embedding modeli basariyla yuklendi! (RAG Tam Aktif)", flush=True)
-    except Exception as e:
-        print(f"[BRIDGE HATA] Model yuklenemedi: {e}", flush=True)
+# %100 Yerel Ollama Embedding Modeli
+EMBED_MODEL_NAME = "nomic-embed-text"
 
 BRIDGE_HOST = os.environ.get("GK_BRIDGE_HOST", "127.0.0.1")
 BRIDGE_PORT = int(os.environ.get("GK_BRIDGE_PORT", "11434"))
@@ -140,14 +131,21 @@ def _iter_runner_completion(payload: dict[str, Any]):
         yield {"error": str(exc), "done": True}
 
 def _get_real_embedding(text: str) -> list[float]:
-    global EMBED_MODEL
-    if EMBED_MODEL:
-        try:
-            vec = EMBED_MODEL.encode(text).tolist()
-            return [round(x, 6) for x in vec]
-        except Exception as e:
-            print(f"[BRIDGE HATA] Embedding hatasi: {e}", flush=True)
-    return [0.0] * 384
+    """HuggingFace yerine doğrudan yerel Ollama nomic-embed-text modelini çağırır."""
+    try:
+        payload = _json_bytes({"model": EMBED_MODEL_NAME, "prompt": text})
+        req = urllib.request.Request(
+            f"{RUNNER_URL}/api/embeddings",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            res_data = json.loads(resp.read().decode("utf-8"))
+            return res_data.get("embedding", [0.0] * 768)
+    except Exception as e:
+        print(f"[BRIDGE HATA] Yerel Embedding alinamadi: {e}", flush=True)
+        return [0.0] * 768
 
 class BridgeHandler(BaseHTTPRequestHandler):
     server_version = "GK-AI-Bridge/2.0"
@@ -265,7 +263,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
 
 def main():
     print(f"[BRIDGE] Baslatiliyor -> http://{BRIDGE_HOST}:{BRIDGE_PORT} | Runner -> {RUNNER_URL}", flush=True)
-    threading.Thread(target=_load_embed_model_async, daemon=True).start()
+    print(f"[BRIDGE] Yerel Embedding Modeli Aktif: {EMBED_MODEL_NAME}", flush=True)
     server = ThreadingHTTPServer((BRIDGE_HOST, BRIDGE_PORT), BridgeHandler)
     try:
         server.serve_forever()
